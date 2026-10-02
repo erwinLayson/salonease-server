@@ -5,7 +5,6 @@ import cookieParser from "cookie-parser";
 import registerRoutes from "./routes/index.js";
 import ErrorHandler from "./middleware/ErrorHandler.js";
 import { NotFoundError } from "./helper/error.js";
-import {checkDBConnection} from "./config/database.js"
 
 
 const app: Express = express();
@@ -14,7 +13,7 @@ app.use(express.json());
 
 // Parses the httpOnly session cookie so `req.cookies` is available to auth middleware.
 app.use(cookieParser());
-checkDBConnection();
+
 // CORS: lets the API be called from other origins (e.g. a separately
 // deployed client). Credentials (the httpOnly session cookie) require an
 // explicit allow-list — a wildcard origin cannot be combined with
