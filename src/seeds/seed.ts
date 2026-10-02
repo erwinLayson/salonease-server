@@ -8,6 +8,7 @@ import {
     type RowDataPacket,
 } from "mysql2/promise";
 import bcrypt from "bcryptjs";
+import { databaseCredentials } from "../config/connection.js";
 import { runIfMain } from "../helper/runIfMain.js";
 
 /**
@@ -205,14 +206,7 @@ const assignService = async (
 };
 
 export const runSeed = async (): Promise<void> => {
-    const connection = await createConnection({
-        host: required("DB_HOST"),
-        user: required("DB_USER"),
-        password: required("DB_PASSWORD"),
-        database: required("DB_NAME"),
-        port: Number(required("DB_PORT")),
-        multipleStatements: false,
-    });
+    const connection = await createConnection(databaseCredentials());
 
     try {
         const ownerUsername = process.env.SEED_OWNER_USERNAME ?? "owner";

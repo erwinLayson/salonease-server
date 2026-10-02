@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import dotenv from "dotenv";
 import { createConnection, type Connection, type RowDataPacket } from "mysql2/promise";
+import { databaseCredentials } from "./config/connection.js";
 import { runIfMain } from "./helper/runIfMain.js";
 
 dotenv.config();
@@ -13,26 +14,11 @@ const MIGRATIONS_DIR = path.join(__dirname, "migrations");
 /** Tracks which migration files have already been applied. */
 const MIGRATIONS_TABLE = "schema_migrations";
 
-const required = (name: string): string => {
-    const value = process.env[name];
-    if (value === undefined) {
-        throw new Error(`Missing required environment variable: ${name}`);
-    }
-    return value;
-};
-
 const openConnection = (): Promise<Connection> =>
-    createConnection({
-        host: required("DB_HOST"),
-        user: required("DB_USER"),
-        password: required("DB_PASSWORD"),
-        database: required("DB_NAME"),
-        port: Number(required("DB_PORT")),
-        // No `multipleStatements`: files are split and executed one statement
-        // at a time (see splitStatements), which also works on servers that
-        // reject multi-statement queries (e.g. TiDB with
-        // tidb_multi_statement_mode=OFF).
-    });
+    // No `multipleStatements`: files are split and executed one statement at a
+    // time (see splitStatements), which also works on servers that reject
+    // multi-statement queries (e.g. TiDB with tidb_multi_statement_mode=OFF).
+    createConnection(databaseCredentials());
 
 /**
  * Splits a migration file into individual statements on top-level `;`.

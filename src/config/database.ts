@@ -1,25 +1,16 @@
 import mysql from "mysql2/promise";
 
-// Helper
-import {getEnvName} from "../helper/getEnvName.js";
+import { databaseCredentials } from "./connection.js";
 
 let pool: mysql.Pool | undefined;
 
 export const databasePool = ():mysql.Pool => {
     pool ??= mysql.createPool({
-        host: getEnvName(`DB_HOST`),
-        user: getEnvName(`DB_USER`),
-        password: getEnvName(`DB_PASSWORD`),
-        database: getEnvName(`DB_NAME`),
-        port: Number(getEnvName('DB_PORT')),
+        // Shared with the migration runner and the seed script so TLS behaves
+        // the same everywhere (TiDB Cloud requires it on every connection).
+        ...databaseCredentials(),
         // Return DECIMAL columns (e.g. services.price) as JS numbers, not strings.
         decimalNumbers: true,
-
-        ...(getEnvName("NODE_ENV") ==="production" ? {
-            ssl: {
-                rejectUnauthorized: true,
-            },
-        } : {})
     })
 
     return pool;
