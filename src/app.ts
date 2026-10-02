@@ -24,6 +24,7 @@ const allowedOrigins = (process.env.CORS_ORIGINS ?? process.env.PUBLIC_APP_URL ?
     .map((origin) => origin.trim())
     .filter((origin) => origin.length > 0);
 
+console.log("CORS allowed origins:", allowedOrigins);
 app.use(
     cors({
         origin: allowedOrigins.length > 0 ? allowedOrigins : false,
