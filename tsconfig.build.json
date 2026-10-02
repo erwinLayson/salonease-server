@@ -1,0 +1,6 @@
+{
+    // Production build config: same as tsconfig.json, but test files are excluded
+    // so they never end up in `dist/`.
+    "extends": "./tsconfig.json",
+    "exclude": ["src/**/*.test.ts", "src/__tests__/**"]
+}
