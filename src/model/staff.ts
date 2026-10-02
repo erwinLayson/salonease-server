@@ -1,5 +1,6 @@
 import type { PoolConnection, ResultSetHeader, RowDataPacket } from "mysql2/promise";
 import { InternalServerError } from "../helper/error.js";
+import { safeRowLimit } from "../helper/sql.js";
 
 // Types
 import type {
@@ -166,13 +167,15 @@ export default class StaffModel {
     /** Preview of the future appointments that deactivation would affect. */
     async listFutureAppointments(staffId: number, limit = 20): Promise<RowDataPacket[]> {
         try {
+            // Inlined (not a `?` parameter): TiDB rejects placeholders in LIMIT.
+            const safeLimit = safeRowLimit(limit, 20);
             const [rows] = await this.connection.execute<RowDataPacket[]>(
                 `SELECT id, reference, start_at, status
                  FROM appointments
                  WHERE staff_id = ? AND status IN ('pending','confirmed') AND start_at > NOW()
                  ORDER BY start_at
-                 LIMIT ?`,
-                [staffId, limit]
+                 LIMIT ${safeLimit}`,
+                [staffId]
             );
             return rows;
         } catch (err) {

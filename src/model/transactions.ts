@@ -1,5 +1,6 @@
 import type { PoolConnection, ResultSetHeader, RowDataPacket } from "mysql2/promise";
 import { InternalServerError } from "../helper/error.js";
+import { safeRowLimit } from "../helper/sql.js";
 
 export type PaymentMethod = "cash" | "gcash" | "card" | "other";
 export type PaymentStatus = "paid" | "unpaid" | "waived";
@@ -197,10 +198,11 @@ export default class TransactionModel {
             }
 
             const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
-            params.push(filter.limit ?? 200);
+            // Inlined (not a `?` parameter): TiDB rejects placeholders in LIMIT.
+            const limit = safeRowLimit(filter.limit);
 
             const [rows] = await this.connection.execute<RowDataPacket[]>(
-                `${DETAIL_SELECT} ${where} ORDER BY t.completed_at DESC LIMIT ?`,
+                `${DETAIL_SELECT} ${where} ORDER BY t.completed_at DESC LIMIT ${limit}`,
                 params
             );
             return rows as TransactionDetailRow[];
