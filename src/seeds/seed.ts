@@ -8,6 +8,7 @@ import {
     type RowDataPacket,
 } from "mysql2/promise";
 import bcrypt from "bcryptjs";
+import { runIfMain } from "../helper/runIfMain.js";
 
 /**
  * Seed script — safe to run repeatedly (idempotent).
@@ -19,6 +20,8 @@ import bcrypt from "bcryptjs";
  *
  * Credentials come from the environment; no passwords are hardcoded.
  * Run with:  pnpm seed
+ * Also runs automatically on server startup, but only when the database has
+ * no users yet (see config/bootstrap.ts) — so production data is untouched.
  */
 
 const BCRYPT_ROUNDS = 10;
@@ -201,7 +204,7 @@ const assignService = async (
     );
 };
 
-const main = async (): Promise<void> => {
+export const runSeed = async (): Promise<void> => {
     const connection = await createConnection({
         host: required("DB_HOST"),
         user: required("DB_USER"),
@@ -259,7 +262,4 @@ const main = async (): Promise<void> => {
     }
 };
 
-main().catch((error) => {
-    console.error("Seed failed:", error);
-    process.exit(1);
-});
+runIfMain(import.meta.url, "Seed failed:", runSeed);
