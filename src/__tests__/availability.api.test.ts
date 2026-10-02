@@ -171,8 +171,10 @@ test("staff leave removes the covered slots", async () => {
         startAt: `${targetDate}T11:00:00`,
         endAt: `${targetDate}T13:00:00`,
     });
+    // Track the id before asserting: if the assertion fails, after() must
+    // still be able to delete the exception it created.
+    if (leave.body.data?.id !== undefined) createdExceptionIds.push(leave.body.data.id);
     assert.equal(leave.status, 201);
-    createdExceptionIds.push(leave.body.data.id);
 
     const slots = await slotsFor(eligibleStaffId);
     assert.ok(!slots.includes("11:00"));
@@ -217,13 +219,33 @@ test("month availability rejects a bad month and an ineligible staff member", as
 });
 
 test("a salon closure removes every slot", async () => {
-    // The 09:00 appointment from the earlier test overlaps this full-day
-    // closure, so the plain attempt must warn with the conflicting list…
+    // Guarantee an overlapping appointment instead of relying on the one from
+    // the earlier test: every test file cleans up ALL `TST%` appointments, so
+    // a concurrent file's after() can delete ours — the closure would then
+    // return 201 instead of 409 and leak a full-day closure into the
+    // database, poisoning every later run (this actually happened).
+    // ER_DUP_ENTRY means the earlier appointment is still there — that's fine.
+    try {
+        await insertTestAppointmentAt({
+            staffId: eligibleStaffId,
+            serviceId,
+            startAt: atTime(targetDate, "09:00"),
+            durationMinutes: 30,
+        });
+    } catch (error) {
+        if ((error as { code?: string }).code !== "ER_DUP_ENTRY") throw error;
+    }
+
+    // The plain attempt must warn with the conflicting list…
     const warned = await send("post", "/api/owner/schedule-exceptions", ownerCookie).send({
         type: "closure",
         startAt: `${targetDate}T00:00:00`,
         endAt: `${targetDate}T23:59:00`,
     });
+    // Track first: if an assertion below fails, after() still deletes it.
+    if (warned.status === 201 && warned.body.data?.id !== undefined) {
+        createdExceptionIds.push(warned.body.data.id);
+    }
     assert.equal(warned.status, 409);
     assert.ok(Array.isArray(warned.body.conflicts));
     assert.ok(warned.body.conflicts.length >= 1);
@@ -235,8 +257,8 @@ test("a salon closure removes every slot", async () => {
         endAt: `${targetDate}T23:59:00`,
         force: true,
     });
+    if (closure.body.data?.id !== undefined) createdExceptionIds.push(closure.body.data.id);
     assert.equal(closure.status, 201);
-    createdExceptionIds.push(closure.body.data.id);
 
     const slots = await slotsFor(eligibleStaffId);
     assert.deepEqual(slots, []);
