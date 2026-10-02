@@ -79,19 +79,6 @@ const splitStatements = (sql: string): string[] => {
     return statements.map((statement) => statement.trim()).filter((statement) => statement.length > 0);
 };
 
-/** True for `ALTER TABLE ... DROP {CONSTRAINT|CHECK} ...` statements. */
-const isDropConstraint = (statement: string): boolean =>
-    /^\s*ALTER\s+TABLE\b[\s\S]*\bDROP\s+(?:CONSTRAINT|CHECK)\b/i.test(statement);
-
-/**
- * MySQL/TiDB report a missing constraint differently, but every variant
- * means the same thing: there is nothing to drop, so it is safe to continue.
- */
-const isMissingConstraintError = (error: unknown): boolean => {
-    const message = error instanceof Error ? error.message : String(error);
-    return /can'?t drop|check that it exists|doesn'?t exist|does not exist|not found/i.test(message);
-};
-
 const ensureMigrationsTable = async (connection: Connection): Promise<void> => {
     await connection.query(`
         CREATE TABLE IF NOT EXISTS ${MIGRATIONS_TABLE} (
@@ -137,20 +124,7 @@ export const runMigrations = async (): Promise<void> => {
                 // cannot be fully rolled back. Keep each migration a single logical
                 // change so re-running after a fix is safe.
                 for (const statement of splitStatements(sql)) {
-                    try {
-                        await connection.query(statement);
-                    } catch (error) {
-                        // TiDB does not record CHECK constraints while
-                        // tidb_enable_check_constraint is OFF (the default), so
-                        // dropping one is a no-op there — while MySQL 8 needs
-                        // the statement. Tolerating "nothing to drop" keeps the
-                        // same file valid on both engines.
-                        if (isDropConstraint(statement) && isMissingConstraintError(error)) {
-                            console.warn(`Skipped (constraint not present): ${statement.replace(/\s+/g, " ")}`);
-                            continue;
-                        }
-                        throw error;
-                    }
+                    await connection.query(statement);
                 }
                 await connection.execute(
                     `INSERT INTO ${MIGRATIONS_TABLE} (filename) VALUES (?)`,

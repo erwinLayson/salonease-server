@@ -11,6 +11,13 @@
 --      inactive statuses, so the unique key uq_appointments_active_slot blocks two
 --      ACTIVE appointments for the same staff member at the same start time while
 --      still allowing many cancelled/completed rows at that time.
+--
+-- NOTE: staff_id is the base column of the STORED generated column active_staff_id,
+-- and MySQL 8 / TiDB forbid a foreign key on the base column of a stored generated
+-- column from using CASCADE, SET NULL, or SET DEFAULT referential actions
+-- ("Cannot add foreign key constraint", errno 1215). fk_appointments_staff therefore
+-- uses ON UPDATE RESTRICT. This is safe — staff ids are auto-increment and never
+-- updated — and MariaDB does not enforce the rule, so it never surfaced locally.
 CREATE TABLE appointments (
     id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     reference       CHAR(12)        NOT NULL,             -- short public reference, e.g. "APT-8F3K9Q"
@@ -47,7 +54,7 @@ CREATE TABLE appointments (
     CONSTRAINT fk_appointments_customer FOREIGN KEY (customer_id) REFERENCES customers(id)
         ON DELETE RESTRICT ON UPDATE CASCADE,
     CONSTRAINT fk_appointments_staff FOREIGN KEY (staff_id) REFERENCES staff(id)
-        ON DELETE RESTRICT ON UPDATE CASCADE,
+        ON DELETE RESTRICT ON UPDATE RESTRICT,
     CONSTRAINT fk_appointments_service FOREIGN KEY (service_id) REFERENCES services(id)
         ON DELETE RESTRICT ON UPDATE CASCADE,
     CONSTRAINT fk_appointments_created_by FOREIGN KEY (created_by) REFERENCES users(id)
