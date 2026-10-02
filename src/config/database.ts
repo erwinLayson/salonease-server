@@ -13,7 +13,13 @@ export const databasePool = ():mysql.Pool => {
         database: getEnvName(`DB_NAME`),
         port: Number(getEnvName('DB_PORT')),
         // Return DECIMAL columns (e.g. services.price) as JS numbers, not strings.
-        decimalNumbers: true
+        decimalNumbers: true,
+
+        ...(getEnvName("NODE_ENV") ==="production" ? {
+            ssl: {
+                rejectUnauthorized: true,
+            },
+        } : {})
     })
 
     return pool;
