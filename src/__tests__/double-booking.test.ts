@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { closeDatabasePool, databasePool } from "../config/database.js";
 import type { RowDataPacket } from "mysql2/promise";
 import { loginWith, send } from "./http.js";
-import { apiSetupBookable, atTime, dateInDays } from "./fixtures.js";
+import { apiSetupBookable, atTime, dateInDays, weekdayOfDate } from "./fixtures.js";
 import {
     cleanupBookingsFor,
     cleanupTestAppointments,
@@ -57,6 +57,12 @@ before(async () => {
     staffId = bookable.staffId;
     serviceId = bookable.serviceId;
     targetDate = dateInDays(10);
+
+    // Working hours on the target weekday so the owner manual-booking endpoint
+    // (which now enforces the schedule) accepts the test slots.
+    await send("put", `/api/owner/staff/${staffId}/schedules`, ownerCookie).send({
+        blocks: [{ weekday: weekdayOfDate(targetDate), startTime: "08:00", endTime: "18:00" }],
+    });
 });
 
 after(async () => {
@@ -138,6 +144,30 @@ test("CONCURRENT: 5 simultaneous requests for one slot produce exactly 1 booking
         );
     }
 
+    assert.equal(await countAt(slot), 1, "the database must contain exactly one booking");
+});
+
+test("CONCURRENT: owner manual bookings for one slot produce exactly one booking", async () => {
+    const slot = "10:30";
+
+    const results = await Promise.all(
+        [1, 2, 3, 4, 5].map((n) =>
+            send("post", "/api/owner/appointments", ownerCookie).send({
+                firstName: "Walk",
+                lastName: "In",
+                phone: `0917000100${n}`,
+                serviceId,
+                staffId,
+                startAt: `${targetDate}T${slot}:00`,
+            })
+        )
+    );
+
+    const created = results.filter((result) => result.status === 201);
+    const conflicts = results.filter((result) => result.status === 409);
+
+    assert.equal(created.length, 1, "exactly one manual booking must succeed");
+    assert.equal(conflicts.length, 4, "all other manual bookings must be rejected");
     assert.equal(await countAt(slot), 1, "the database must contain exactly one booking");
 });
 

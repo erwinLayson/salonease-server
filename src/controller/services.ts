@@ -4,12 +4,15 @@ import { BOOKING_RULES } from "../config/booking.js";
 import {
     optionalString,
     requireBoolean,
+    requireDateString,
     requireIdParam,
     requireInteger,
     requireNumber,
     requireString,
 } from "../helper/validation.js";
+import { formatDate } from "../helper/time.js";
 import * as serviceService from "../service/services.js";
+import * as availabilityService from "../service/availability.js";
 
 // Types
 import type { CreateServiceInput } from "../constant/services.js";
@@ -79,6 +82,23 @@ export const setServiceStatus = asyncHandler(async (req, res) => {
     const isActive = requireBoolean(body.isActive, "isActive");
     const updated = await serviceService.setServiceActive(id, isActive);
     res.status(200).json({ success: true, data: updated });
+});
+
+/**
+ * GET /api/owner/services/:id/staff?date=YYYY-MM-DD
+ *
+ * Active staff eligible for the service, each with their availability status on
+ * `date` (defaults to today). Powers the service-first walk-in flow.
+ */
+export const listServiceStaff = asyncHandler(async (req, res) => {
+    const id = requireIdParam(req.params.id);
+    const date =
+        req.query.date !== undefined && req.query.date !== null && req.query.date !== ""
+            ? requireDateString(req.query.date, "date")
+            : formatDate(new Date());
+
+    const data = await availabilityService.listStaffForServiceWithStatus(id, date);
+    res.status(200).json({ success: true, data });
 });
 
 /** DELETE /api/owner/services/:id */

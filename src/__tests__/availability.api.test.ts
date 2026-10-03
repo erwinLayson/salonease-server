@@ -11,6 +11,7 @@ import {
     weekdayOfDate,
 } from "./fixtures.js";
 import {
+    cleanupBookingsFor,
     cleanupTestAppointments,
     createTestUser,
     deleteTestUser,
@@ -73,6 +74,7 @@ before(async () => {
 
 after(async () => {
     await cleanupTestAppointments();
+    await cleanupBookingsFor([eligibleStaffId], [serviceId]);
     for (const id of createdExceptionIds) {
         await send("delete", `/api/owner/schedule-exceptions/${id}`, ownerCookie);
     }
@@ -219,22 +221,28 @@ test("month availability rejects a bad month and an ineligible staff member", as
 });
 
 test("a salon closure removes every slot", async () => {
-    // Guarantee an overlapping appointment instead of relying on the one from
-    // the earlier test: every test file cleans up ALL `TST%` appointments, so
-    // a concurrent file's after() can delete ours — the closure would then
-    // return 201 instead of 409 and leak a full-day closure into the
-    // database, poisoning every later run (this actually happened).
-    // ER_DUP_ENTRY means the earlier appointment is still there — that's fine.
-    try {
-        await insertTestAppointmentAt({
-            staffId: eligibleStaffId,
-            serviceId,
-            startAt: atTime(targetDate, "09:00"),
-            durationMinutes: 30,
-        });
-    } catch (error) {
-        if ((error as { code?: string }).code !== "ER_DUP_ENTRY") throw error;
-    }
+    // Guarantee an overlapping appointment through the real walk-in path at
+    // 09:45 (the buffer test's TST appointment ends at 09:40, so this slot is
+    // free regardless of whether it still exists): a `TST*` fixture can be
+    // deleted by a concurrent file's after() between an insert and this POST —
+    // the closure would then return 201 instead of 409 and leak a full-day
+    // closure into the database, poisoning every later run (this actually
+    // happened). An `APT-*` booking is untouched by `cleanupTestAppointments`.
+    const walkIn = await send("post", "/api/owner/appointments", ownerCookie).send({
+        firstName: "Closure",
+        lastName: "Conflict",
+        phone: "09170000777",
+        staffId: eligibleStaffId,
+        serviceId,
+        startAt: `${targetDate}T09:45:00`,
+    });
+    // Either we created the booking, or an appointment already overlaps the
+    // slot — both mean the conflict check below has something to find.
+    assert.ok(
+        walkIn.status === 201 ||
+            (walkIn.status === 409 && Array.isArray(walkIn.body.conflicts)),
+        `walk-in must be created or report a conflict (got ${walkIn.status})`
+    );
 
     // The plain attempt must warn with the conflicting list…
     const warned = await send("post", "/api/owner/schedule-exceptions", ownerCookie).send({
@@ -300,4 +308,78 @@ test("selecting an ineligible staff member is rejected (400)", async () => {
         `/api/public/availability?serviceId=${serviceId}&date=${targetDate}&staffId=${ineligibleStaffId}`
     );
     assert.equal(res.status, 400);
+});
+
+test("owner availability reports a day-level status and reason", async () => {
+    // The same weekday as the configured schedule, so the day has working hours.
+    const availableDate = dateInDays(21);
+    const available = await send(
+        "get",
+        `/api/owner/availability?serviceId=${serviceId}&date=${availableDate}&staffId=${eligibleStaffId}`,
+        ownerCookie
+    );
+    assert.equal(available.status, 200);
+    const availableEntry = available.body.data.staff[0] as {
+        status: string;
+        reason: string | null;
+    };
+    assert.equal(availableEntry.status, "available");
+    assert.equal(availableEntry.reason, null);
+
+    // A weekday without working hours is unavailable, with a reason.
+    const offDate = dateInDays(22);
+    const dayOff = await send(
+        "get",
+        `/api/owner/availability?serviceId=${serviceId}&date=${offDate}&staffId=${eligibleStaffId}`,
+        ownerCookie
+    );
+    assert.equal(dayOff.status, 200);
+    const dayOffEntry = dayOff.body.data.staff[0] as {
+        status: string;
+        reason: string | null;
+    };
+    assert.equal(dayOffEntry.status, "unavailable");
+    assert.ok(dayOffEntry.reason);
+
+    // A full-day leave blocks the whole working day and carries its reason.
+    const leave = await send("post", "/api/owner/schedule-exceptions", ownerCookie).send({
+        staffId: eligibleStaffId,
+        type: "leave",
+        startAt: `${availableDate}T00:00:00`,
+        endAt: `${availableDate}T23:59:00`,
+        reason: "Vacation",
+    });
+    if (leave.body.data?.id !== undefined) createdExceptionIds.push(leave.body.data.id);
+    assert.equal(leave.status, 201);
+
+    const onLeave = await send(
+        "get",
+        `/api/owner/availability?serviceId=${serviceId}&date=${availableDate}&staffId=${eligibleStaffId}`,
+        ownerCookie
+    );
+    const onLeaveEntry = onLeave.body.data.staff[0] as {
+        status: string;
+        reason: string | null;
+    };
+    assert.equal(onLeaveEntry.status, "unavailable");
+    assert.match(onLeaveEntry.reason ?? "", /Vacation/);
+});
+
+test("owner service staff list returns only eligible staff with a status", async () => {
+    const res = await send(
+        "get",
+        `/api/owner/services/${serviceId}/staff`,
+        ownerCookie
+    );
+    assert.equal(res.status, 200);
+
+    const ids = res.body.data.map((entry: { staffId: number }) => entry.staffId);
+    assert.ok(ids.includes(eligibleStaffId), "eligible staff is included");
+    assert.ok(!ids.includes(ineligibleStaffId), "ineligible staff is hidden");
+
+    const entry = res.body.data.find(
+        (item: { staffId: number }) => item.staffId === eligibleStaffId
+    );
+    assert.ok(["available", "busy", "unavailable"].includes(entry.status));
+    assert.ok(Array.isArray(entry.schedule));
 });

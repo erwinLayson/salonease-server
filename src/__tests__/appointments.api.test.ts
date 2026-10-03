@@ -103,10 +103,10 @@ test("owner creates a manual (walk-in) booking", async () => {
     assert.equal(res.body.data.customer.name, "Walk In");
 });
 
-test("manual booking may bypass working hours (owner override)", async () => {
-    // 07:00 is outside the 09:00–18:00 schedule, but the owner can still record it.
+test("manual booking outside the staff schedule is rejected (409)", async () => {
+    // 07:00 is outside the 09:00–18:00 schedule; the backend enforces the schedule.
     const res = await manualBooking(staffAId, "07:00");
-    assert.equal(res.status, 201);
+    assert.equal(res.status, 409);
 });
 
 test("manual booking on a conflicting time is rejected (409)", async () => {

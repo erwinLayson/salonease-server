@@ -2,8 +2,17 @@ import AppointmentModel from "../model/appointments.js";
 import CustomerModel from "../model/customers.js";
 import StaffModel from "../model/staff.js";
 import ServiceModel from "../model/services.js";
+import SchedulingModel from "../model/scheduling.js";
+import { subtractIntervals } from "./availabilityEngine.js";
 import { withTransaction } from "../helper/withConnection.js";
-import { addMinutes } from "../helper/time.js";
+import {
+    addMinutes,
+    combineDateTime,
+    endOfDay,
+    formatDate,
+    startOfDay,
+    weekdayOf,
+} from "../helper/time.js";
 import { generateAppointmentReference, generateManageToken } from "../helper/reference.js";
 import { BOOKING_RULES } from "../config/booking.js";
 import {
@@ -14,6 +23,8 @@ import {
 } from "../helper/error.js";
 
 // Types
+import type { PoolConnection } from "mysql2/promise";
+import type { Interval } from "./availabilityEngine.js";
 import type { AppointmentRow } from "../model/appointments.js";
 
 export interface BookingCustomer {
@@ -30,7 +41,64 @@ export interface CreateBookingInput {
     startAt: Date;
     source?: "online" | "manual";
     createdBy?: number | null;
+    /**
+     * Also require the slot to fall inside the staff member's working hours and
+     * outside leave/closure blocks. Used by the owner walk-in flow, which has no
+     * online availability pre-check; online bookings pre-validate availability.
+     */
+    enforceSchedule?: boolean;
 }
+
+/**
+ * Rejects a start time outside the staff member's working hours or inside a
+ * leave/closure block. Runs inside the booking transaction (after the staff row
+ * lock) so the check sees a consistent schedule and cannot be raced.
+ */
+const assertWithinWorkingHours = async (
+    connection: PoolConnection,
+    staffId: number,
+    startAt: Date,
+    endAt: Date
+): Promise<void> => {
+    const scheduling = new SchedulingModel(connection);
+    const date = formatDate(startAt);
+    const weekday = weekdayOf(date);
+
+    const schedules = (await scheduling.listSchedules(staffId)).filter(
+        (row) => row.weekday === weekday && row.is_active === 1
+    );
+
+    if (schedules.length === 0) {
+        throw new ConflictError(
+            "The staff member is not scheduled to work on that day. Choose another date or staff member."
+        );
+    }
+
+    const workingWindows: Interval[] = schedules.map((row) => ({
+        start: combineDateTime(date, row.start_time),
+        end: combineDateTime(date, row.end_time),
+    }));
+
+    const exceptions = await scheduling.listExceptionsForRange(
+        staffId,
+        startOfDay(startAt),
+        endOfDay(startAt)
+    );
+    const blocked: Interval[] = exceptions.map((row) => ({
+        start: new Date(row.start_at),
+        end: new Date(row.end_at),
+    }));
+
+    const fits = subtractIntervals(workingWindows, blocked).some(
+        (window) => startAt >= window.start && endAt <= window.end
+    );
+
+    if (!fits) {
+        throw new ConflictError(
+            "That time is outside the staff member's working hours or falls in blocked time."
+        );
+    }
+};
 
 /**
  * Creates an appointment, rejecting any conflict.
@@ -65,11 +133,17 @@ export const createBooking = (input: CreateBookingInput): Promise<AppointmentRow
 
         const appointmentModel = new AppointmentModel(connection);
 
+        const endAt = addMinutes(input.startAt, service.duration_minutes);
+        const bufferEndAt = addMinutes(endAt, BOOKING_RULES.bufferMinutes);
+
         // Serialize bookings for this staff member.
         await appointmentModel.lockStaffRow(input.staffId);
 
-        const endAt = addMinutes(input.startAt, service.duration_minutes);
-        const bufferEndAt = addMinutes(endAt, BOOKING_RULES.bufferMinutes);
+        // Walk-in bookings are not pre-validated against availability, so the
+        // working-hours/leave rules are enforced here, in the same transaction.
+        if (input.enforceSchedule) {
+            await assertWithinWorkingHours(connection, input.staffId, input.startAt, endAt);
+        }
 
         const clash = await appointmentModel.findOverlap(input.staffId, input.startAt, bufferEndAt);
         if (clash) {

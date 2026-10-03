@@ -3,6 +3,7 @@ import { requireRole } from "../middleware/authorize.js";
 import staffRouter from "./owner/staff.js";
 import servicesRouter from "./owner/services.js";
 import schedulingRouter from "./owner/scheduling.js";
+import leaveRequestsRouter from "./owner/leaveRequests.js";
 import appointmentsRouter from "./owner/appointments.js";
 import transactionsRouter from "./owner/transactions.js";
 
@@ -22,6 +23,7 @@ router.get("/dashboard", (req, res) => {
 router.use("/staff", staffRouter);
 router.use("/services", servicesRouter);
 router.use("/", schedulingRouter);
+router.use("/", leaveRequestsRouter);
 router.use("/", appointmentsRouter);
 router.use("/", transactionsRouter);
 

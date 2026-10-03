@@ -7,6 +7,7 @@ const router = Router();
 router.get("/", controller.listServices);
 router.post("/", controller.createService);
 router.get("/:id", controller.getService);
+router.get("/:id/staff", controller.listServiceStaff);
 router.put("/:id", controller.updateService);
 router.patch("/:id/status", controller.setServiceStatus);
 router.delete("/:id", controller.deleteService);

@@ -6,6 +6,7 @@ import * as availabilityController from "../../controller/availability.js";
 const router = Router();
 
 router.get("/availability", availabilityController.getAvailability);
+router.get("/availability-month", availabilityController.getOwnerMonthAvailability);
 
 router.get("/schedule-exceptions", schedulingController.listExceptions);
 router.post("/schedule-exceptions", schedulingController.createException);

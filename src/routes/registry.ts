@@ -51,13 +51,21 @@ export const PROTECTED_ROUTES: RouteMeta[] = [
     { method: "delete", path: "/api/owner/staff/1" },
 
     { method: "get", path: "/api/owner/availability" },
+    { method: "get", path: "/api/owner/availability-month" },
     { method: "get", path: "/api/owner/schedule-exceptions" },
     { method: "post", path: "/api/owner/schedule-exceptions" },
     { method: "delete", path: "/api/owner/schedule-exceptions/1" },
 
+    { method: "get", path: "/api/owner/leave-requests" },
+    { method: "get", path: "/api/owner/leave-requests/1/conflicts" },
+    { method: "post", path: "/api/owner/leave-requests/1/approve" },
+    { method: "post", path: "/api/owner/leave-requests/1/reject" },
+    { method: "post", path: "/api/owner/leave-requests/1/cancel" },
+
     { method: "get", path: "/api/owner/services" },
     { method: "post", path: "/api/owner/services" },
     { method: "get", path: "/api/owner/services/1" },
+    { method: "get", path: "/api/owner/services/1/staff" },
     { method: "put", path: "/api/owner/services/1" },
     { method: "patch", path: "/api/owner/services/1/status" },
     { method: "delete", path: "/api/owner/services/1" },
@@ -77,6 +85,7 @@ export const PROTECTED_ROUTES: RouteMeta[] = [
     { method: "patch", path: "/api/staff/appointments/1/transaction" },
     { method: "get", path: "/api/staff/transactions" },
     { method: "get", path: "/api/staff/schedule" },
+    { method: "get", path: "/api/staff/leave-requests/coverage" },
 ];
 
 /**
@@ -90,6 +99,7 @@ export const OWNER_GET_ROUTES: string[] = [
     "/api/owner/staff",
     "/api/owner/services",
     "/api/owner/schedule-exceptions",
+    "/api/owner/leave-requests",
     "/api/owner/appointments",
     "/api/owner/schedule",
 ];
@@ -97,5 +107,7 @@ export const OWNER_GET_ROUTES: string[] = [
 export const STAFF_GET_ROUTES: string[] = [
     "/api/staff/appointments",
     "/api/staff/transactions",
+    "/api/staff/leave-requests",
+    "/api/staff/leave-requests/coverage",
     "/api/staff/schedule",
 ];

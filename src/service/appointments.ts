@@ -394,11 +394,12 @@ export interface ManualBookingInput {
 /**
  * Owner-created manual (walk-in / phone) booking (FR-AP4).
  *
- * Owner override: the appointment only needs an active service, an active and
- * eligible staff member, and a conflict-free time. Working hours and the online
- * lead time are intentionally **not** enforced, so the owner can record a
- * same-day walk-in or a booking outside normal hours. Conflicts are still
- * rejected by `createBooking`.
+ * The backend re-checks the slot before inserting: the staff member must be
+ * active, eligible for the service, scheduled to work at that time (working
+ * hours / no leave or closure), and conflict-free. The online lead time and
+ * advance-booking window are intentionally **not** enforced, so the owner can
+ * still record a same-day walk-in. All checks run inside one transaction with a
+ * staff-row lock, so the slot cannot be double-booked.
  */
 export const createManualBooking = async (
     input: ManualBookingInput
@@ -410,6 +411,7 @@ export const createManualBooking = async (
         startAt: input.startAt,
         source: "manual",
         createdBy: input.createdBy,
+        enforceSchedule: true,
     });
 
     if (input.notes) {
