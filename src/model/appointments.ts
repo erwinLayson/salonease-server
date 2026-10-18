@@ -256,6 +256,19 @@ export default class AppointmentModel {
         }
     }
 
+    /** Locks the appointment row for the completion pipeline. */
+    async findByIdForUpdate(id: number): Promise<AppointmentRow | null> {
+        try {
+            const [rows] = await this.connection.execute<RowDataPacket[]>(
+                `${SELECT_COLUMNS} WHERE id = ? LIMIT 1 FOR UPDATE`,
+                [id]
+            );
+            return (rows[0] as AppointmentRow | undefined) ?? null;
+        } catch (err) {
+            throw new InternalServerError("Internal Server Error", 500, err);
+        }
+    }
+
     async findById(id: number): Promise<AppointmentRow | null> {
         try {
             const [rows] = await this.connection.execute<RowDataPacket[]>(

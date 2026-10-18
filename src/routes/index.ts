@@ -4,6 +4,7 @@ import publicRouter from "./public.js";
 import authRouter from "./auth.js";
 import ownerRouter from "./owner.js";
 import staffRouter from "./staff.js";
+import notificationsRouter from "./notifications.js";
 
 /**
  * Mounts every router.
@@ -19,4 +20,5 @@ export default function registerRoutes(app: Express): void {
     // Every route below requires a valid session.
     app.use("/api/owner", authenticate, ownerRouter);
     app.use("/api/staff", authenticate, staffRouter);
+    app.use("/api/notifications", authenticate, notificationsRouter);
 }

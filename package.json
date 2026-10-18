@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "migrate": "tsx src/migration.ts",
     "seed": "tsx src/seeds/seed.ts",
+    "backfill:finance": "tsx src/scripts/backfillFinance.ts",
     "test": "node --import tsx --test \"src/**/*.test.ts\""
   },
   "keywords": [],

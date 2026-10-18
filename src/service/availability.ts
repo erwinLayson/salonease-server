@@ -3,6 +3,7 @@ import StaffModel from "../model/staff.js";
 import SchedulingModel from "../model/scheduling.js";
 import AppointmentModel from "../model/appointments.js";
 import { computeSlots, subtractIntervals } from "./availabilityEngine.js";
+import { listEventBusyIntervals } from "./eventBusy.js";
 import { withConnection } from "../helper/withConnection.js";
 import { BOOKING_RULES } from "../config/booking.js";
 import {
@@ -206,6 +207,8 @@ export const getAvailability = async (
                 start: new Date(row.start_at),
                 end: new Date(row.buffer_end_at),
             }));
+            // On-location event assignments (including travel) block salon slots.
+            busy.push(...(await listEventBusyIntervals(staff.id, dayStart, dayEnd)));
 
             const slots = computeSlots({
                 serviceDurationMinutes: service.duration_minutes,
@@ -325,6 +328,7 @@ export const getMonthAvailability = async (
                 start: new Date(row.start_at),
                 end: new Date(row.buffer_end_at),
             }));
+            busy.push(...(await listEventBusyIntervals(member.id, monthStart, monthEnd)));
 
             const dates: Record<string, number> = {};
 
@@ -469,6 +473,7 @@ export const listStaffForServiceWithStatus = (
                 start: new Date(row.start_at),
                 end: new Date(row.buffer_end_at),
             }));
+            busy.push(...(await listEventBusyIntervals(member.id, dayStart, dayEnd)));
 
             const slots = computeSlots({
                 serviceDurationMinutes: service.duration_minutes,

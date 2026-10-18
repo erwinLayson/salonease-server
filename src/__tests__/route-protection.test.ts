@@ -81,7 +81,14 @@ test("staff-only routes allow staff and forbid the owner (403)", async () => {
 });
 
 test("every protected route is covered by a documented access rule", () => {
-    const authOnly = new Set(["/api/auth/me", "/api/auth/logout"]);
+    // Authenticated but not role-scoped: the session's own account, and the
+    // shared in-app notification inbox (every signed-in user has one).
+    const authOnly = new Set([
+        "/api/auth/me",
+        "/api/auth/logout",
+        "/api/notifications",
+        "/api/notifications/1/read",
+    ]);
 
     for (const route of PROTECTED_ROUTES) {
         const roleScoped =

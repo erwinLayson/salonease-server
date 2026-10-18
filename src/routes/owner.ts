@@ -6,6 +6,10 @@ import schedulingRouter from "./owner/scheduling.js";
 import leaveRequestsRouter from "./owner/leaveRequests.js";
 import appointmentsRouter from "./owner/appointments.js";
 import transactionsRouter from "./owner/transactions.js";
+import queueRouter from "./owner/queue.js";
+import inventoryRouter from "./owner/inventory.js";
+import eventsRouter from "./owner/events.js";
+import financeRouter from "./owner/finance.js";
 
 /**
  * Owner-only routes. `requireRole("owner")` runs before every route in this
@@ -26,5 +30,9 @@ router.use("/", schedulingRouter);
 router.use("/", leaveRequestsRouter);
 router.use("/", appointmentsRouter);
 router.use("/", transactionsRouter);
+router.use("/", queueRouter);
+router.use("/", inventoryRouter);
+router.use("/", eventsRouter);
+router.use("/", financeRouter);
 
 export default router;

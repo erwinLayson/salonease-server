@@ -1,5 +1,7 @@
+import type { PoolConnection } from "mysql2/promise";
 import TransactionModel from "../model/transactions.js";
 import { withConnection, withTransaction } from "../helper/withConnection.js";
+import { assertDayOpen } from "./dailyClose.js";
 import { BadRequestError, NotFoundError } from "../helper/error.js";
 import { PAYMENT_METHODS, PAYMENT_STATUSES } from "../constant/transactions.js";
 
@@ -16,8 +18,12 @@ import type {
 export interface TransactionDetail {
     id: number;
     reference: string;
-    appointmentId: number;
-    appointmentReference: string;
+    appointmentId: number | null;
+    appointmentReference: string | null;
+    eventId: number | null;
+    eventReference: string | null;
+    eventTitle: string | null;
+    sourceType: "appointment" | "event";
     customer: {
         id: number;
         name: string;
@@ -28,6 +34,8 @@ export interface TransactionDetail {
     service: { id: number; name: string };
     subtotal: number;
     total: number;
+    commissionTotal: number;
+    inventoryCostTotal: number;
     paymentMethod: PaymentMethod;
     paymentStatus: PaymentStatus;
     notes: string | null;
@@ -44,6 +52,10 @@ const toDetail = (row: TransactionDetailRow): TransactionDetail => ({
     reference: row.reference,
     appointmentId: row.appointment_id,
     appointmentReference: row.appointment_reference,
+    eventId: row.event_id,
+    eventReference: row.event_reference,
+    eventTitle: row.event_title,
+    sourceType: row.event_id === null ? "appointment" : "event",
     customer: {
         id: row.customer_id,
         name: fullName(row.customer_first_name, row.customer_last_name),
@@ -57,6 +69,8 @@ const toDetail = (row: TransactionDetailRow): TransactionDetail => ({
     service: { id: row.service_id, name: row.service_name },
     subtotal: row.subtotal,
     total: row.total,
+    commissionTotal: Number(row.commission_total ?? 0),
+    inventoryCostTotal: Number(row.inventory_cost_total ?? 0),
     paymentMethod: row.payment_method,
     paymentStatus: row.payment_status,
     notes: row.notes,
@@ -75,46 +89,114 @@ export const buildReference = (id: number, completedAt: Date): string => {
     return `TXN-${date}-${String(id).padStart(4, "0")}`;
 };
 
-/**
- * Creates a transaction record when an appointment is marked completed.
- * Called internally by `changeStatus` — not exposed as a public route.
- *
- * Default payment: cash / unpaid so the owner can fill it in afterwards.
- */
-export const createTransactionForAppointment = async (opts: {
+export interface AppointmentTransactionInput {
     appointmentId: number;
     customerId: number;
     staffId: number;
     serviceId: number;
     price: number;
     completedAt: Date;
-}): Promise<TransactionDetail> =>
-    withTransaction(async (connection) => {
-        const model = new TransactionModel(connection);
+}
 
-        // Placeholder reference replaced once we have the auto-increment id.
-        const insertId = await model.insert({
-            reference: "TXN-PENDING",
-            appointmentId: opts.appointmentId,
-            customerId: opts.customerId,
-            staffId: opts.staffId,
-            serviceId: opts.serviceId,
-            subtotal: opts.price,
-            total: opts.price,
-            paymentMethod: "cash",
-            paymentStatus: "unpaid",
-            completedAt: opts.completedAt,
-        });
+/**
+ * Creates (or returns) the transaction for a completed appointment using an
+ * existing transaction connection. Completion, stock deduction and commission
+ * accrual all share this connection so they commit or roll back together.
+ */
+export const createTransactionForAppointmentInConnection = async (
+    connection: PoolConnection,
+    opts: AppointmentTransactionInput
+): Promise<TransactionDetail> => {
+    const model = new TransactionModel(connection);
 
-        const reference = buildReference(insertId, opts.completedAt);
-        await connection.execute("UPDATE transactions SET reference = ? WHERE id = ?", [
-            reference,
-            insertId,
-        ]);
+    // Idempotent: a retry or a double completion must not create a second row.
+    const existing = await model.findByAppointmentId(opts.appointmentId);
+    if (existing) return toDetail(existing);
 
-        const row = await model.findById(insertId);
-        return toDetail(row!);
+    // Placeholder reference replaced once we have the auto-increment id.
+    const insertId = await model.insert({
+        reference: "TXN-PENDING",
+        appointmentId: opts.appointmentId,
+        eventId: null,
+        customerId: opts.customerId,
+        staffId: opts.staffId,
+        serviceId: opts.serviceId,
+        subtotal: opts.price,
+        total: opts.price,
+        paymentMethod: "cash",
+        paymentStatus: "unpaid",
+        completedAt: opts.completedAt,
     });
+
+    const reference = buildReference(insertId, opts.completedAt);
+    await connection.execute("UPDATE transactions SET reference = ? WHERE id = ?", [
+        reference,
+        insertId,
+    ]);
+
+    return toDetail((await model.findById(insertId))!);
+};
+
+export interface EventTransactionInput {
+    eventId: number;
+    customerId: number;
+    staffId: number;
+    serviceId: number;
+    price: number;
+    completedAt: Date;
+}
+
+/** Creates (or returns) the one transaction for a completed event. */
+export const createTransactionForEventInConnection = async (
+    connection: PoolConnection,
+    opts: EventTransactionInput
+): Promise<TransactionDetail> => {
+    const model = new TransactionModel(connection);
+    const existing = await model.findByEventId(opts.eventId);
+    if (existing) return toDetail(existing);
+
+    const insertId = await model.insert({
+        reference: "TXN-PENDING",
+        appointmentId: null,
+        eventId: opts.eventId,
+        customerId: opts.customerId,
+        staffId: opts.staffId,
+        serviceId: opts.serviceId,
+        subtotal: opts.price,
+        total: opts.price,
+        paymentMethod: "cash",
+        paymentStatus: "unpaid",
+        completedAt: opts.completedAt,
+    });
+
+    const reference = buildReference(insertId, opts.completedAt);
+    await connection.execute("UPDATE transactions SET reference = ? WHERE id = ?", [
+        reference,
+        insertId,
+    ]);
+
+    return toDetail((await model.findById(insertId))!);
+};
+
+/** Reads a transaction on an existing connection (used by backfill tasks). */
+export const findTransactionInConnection = async (
+    connection: PoolConnection,
+    id: number
+): Promise<TransactionDetail | null> => {
+    const row = await new TransactionModel(connection).findById(id);
+    return row ? toDetail(row) : null;
+};
+
+/**
+ * Creates a transaction for a completed appointment in its own transaction.
+ * Kept for callers outside the completion pipeline.
+ */
+export const createTransactionForAppointment = (
+    opts: AppointmentTransactionInput
+): Promise<TransactionDetail> =>
+    withTransaction((connection) =>
+        createTransactionForAppointmentInConnection(connection, opts)
+    );
 
 /** Owner transaction list with optional filters. */
 export const listTransactions = (filter: TransactionFilter): Promise<TransactionDetail[]> =>
@@ -155,6 +237,7 @@ export const updateTransaction = (
         const model = new TransactionModel(connection);
         const existing = await model.findById(id);
         if (!existing) throw new NotFoundError("Transaction not found", 404);
+        await assertDayOpen(connection, new Date(existing.completed_at));
 
         const patch: UpdateTransactionInput = {};
 
@@ -206,6 +289,7 @@ export const updateTransactionForAppointment = (
         const model = new TransactionModel(connection);
         const existing = await model.findByAppointmentId(appointmentId);
         if (!existing) throw new NotFoundError("Transaction not found", 404);
+        await assertDayOpen(connection, new Date(existing.completed_at));
 
         const patch: UpdateTransactionInput = {};
 

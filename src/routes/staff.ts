@@ -5,6 +5,8 @@ import * as leaveRequestsController from "../controller/leaveRequests.js";
 import * as scheduleViewController from "../controller/scheduleView.js";
 import * as staffController from "../controller/staff.js";
 import * as transactionsController from "../controller/transactions.js";
+import * as eventsController from "../controller/events.js";
+import * as financeController from "../controller/finance.js";
 
 /**
  * Staff-only routes.
@@ -35,6 +37,9 @@ router.patch(
 /** Billing history for the caller's own completed appointments. */
 router.get("/transactions", transactionsController.listMyTransactions);
 router.get("/schedule", scheduleViewController.getStaffSchedule);
+router.get("/events", eventsController.listMyEvents);
+router.get("/commissions", financeController.listMyEntries);
+router.get("/commission-payouts", financeController.listMyPayouts);
 
 /** Leave requests: the caller may only submit, list and withdraw their own. */
 router.get("/leave-requests", leaveRequestsController.listMine);

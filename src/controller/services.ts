@@ -15,7 +15,8 @@ import * as serviceService from "../service/services.js";
 import * as availabilityService from "../service/availability.js";
 
 // Types
-import type { CreateServiceInput } from "../constant/services.js";
+import { SERVICE_CATEGORIES } from "../constant/services.js";
+import type { CreateServiceInput, ServiceCategory } from "../constant/services.js";
 
 const MAX_DURATION_MINUTES = 24 * 60;
 
@@ -25,6 +26,17 @@ const parseServiceBody = (body: unknown): CreateServiceInput => {
 
     const name = requireString(input.name, "name", 120);
     const description = optionalString(input.description, "description", 2000);
+
+    const rawCategory =
+        input.category === undefined || input.category === null || input.category === ""
+            ? "other"
+            : requireString(input.category, "category", 20);
+    if (!SERVICE_CATEGORIES.includes(rawCategory as ServiceCategory)) {
+        throw new BadRequestError(
+            `category must be one of: ${SERVICE_CATEGORIES.join(", ")}`
+        );
+    }
+    const category = rawCategory as ServiceCategory;
 
     const price = requireNumber(input.price, "price");
     if (price < 0) {
@@ -46,7 +58,7 @@ const parseServiceBody = (body: unknown): CreateServiceInput => {
         throw new BadRequestError(`durationMinutes must be a multiple of ${step} minutes`);
     }
 
-    return { name, description, price, durationMinutes };
+    return { name, description, category, price, durationMinutes };
 };
 
 /** GET /api/owner/services?includeInactive=true */

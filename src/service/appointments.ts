@@ -4,7 +4,10 @@ import ServiceModel from "../model/services.js";
 import StaffModel from "../model/staff.js";
 import { createBooking } from "./booking.js";
 import { getAvailability } from "./availability.js";
-import { createTransactionForAppointment } from "./transactions.js";
+import { createTransactionForAppointmentInConnection } from "./transactions.js";
+import { deductForAppointment } from "./inventory.js";
+import { accrueForAppointment } from "./commissions.js";
+import { assertDayOpen } from "./dailyClose.js";
 import { withConnection, withTransaction } from "../helper/withConnection.js";
 import { addMinutes, formatDate, formatTime } from "../helper/time.js";
 import { BOOKING_RULES } from "../config/booking.js";
@@ -118,6 +121,8 @@ export const listConflictingAppointments = (
 
 export interface ChangeStatusOptions {
     reason?: string | null;
+    /** Actor recorded on automatic stock movements. */
+    actorUserId?: number | null;
 }
 
 /**
@@ -126,17 +131,73 @@ export interface ChangeStatusOptions {
  * Only transitions in `STATUS_TRANSITIONS` are accepted; finished appointments
  * (completed / cancelled / no-show) are terminal.
  *
- * When the appointment is marked `completed`, a billing transaction record is
- * automatically created (Phase 8). The transaction is created after the status
- * update so that a failure in billing does NOT roll back the completion —
- * the owner can still update the transaction separately.
+ * Completion is atomic: the status update, billing transaction and recipe
+ * stock deduction share one database transaction. A stock shortage therefore
+ * rolls the completion back instead of silently leaving an unbilled or
+ * unstocked appointment.
  */
 export const changeStatus = async (
     id: number,
     status: AppointmentStatus,
     options: ChangeStatusOptions = {}
 ): Promise<AppointmentDetail> => {
-    const detail = await withConnection(async (connection) => {
+    if (status === "completed") {
+        return withTransaction(async (connection) => {
+            const model = new AppointmentModel(connection);
+            const row = await model.findByIdForUpdate(id);
+
+            if (!row) throw new NotFoundError("Appointment not found", 404);
+            if (row.status === status) {
+                throw new BadRequestError(
+                    `This appointment is already marked as ${statusLabel(status)}.`
+                );
+            }
+            if (!canTransition(row.status, status)) {
+                throw new ConflictError(
+                    `A ${statusLabel(row.status)} appointment cannot be changed to ${statusLabel(
+                        status
+                    )}.`
+                );
+            }
+
+            // A closed business day is locked: completing an appointment would
+            // change its totals, so the owner must reopen the day first.
+            await assertDayOpen(connection, new Date());
+
+            await model.updateStatus(id, status, { reason: options.reason ?? null });
+            const detail = toDetail((await model.findByIdWithDetails(id))!);
+
+            const transaction = await createTransactionForAppointmentInConnection(
+                connection,
+                {
+                    appointmentId: detail.id,
+                    customerId: detail.customer.id,
+                    staffId: detail.staff.id,
+                    serviceId: detail.service.id,
+                    price: detail.price,
+                    completedAt: new Date(),
+                }
+            );
+
+            await deductForAppointment(connection, {
+                appointmentId: detail.id,
+                serviceId: detail.service.id,
+                createdBy: options.actorUserId ?? null,
+            });
+
+            await accrueForAppointment(connection, {
+                appointmentId: detail.id,
+                transaction,
+                staffId: detail.staff.id,
+                serviceId: detail.service.id,
+                completedAt: transaction.completedAt,
+            });
+
+            return detail;
+        });
+    }
+
+    return withConnection(async (connection) => {
         const model = new AppointmentModel(connection);
         const row = await model.findById(id);
 
@@ -161,26 +222,6 @@ export const changeStatus = async (
         await model.updateStatus(id, status, { reason: options.reason ?? null });
         return toDetail((await model.findByIdWithDetails(id))!);
     });
-
-    // Auto-create billing transaction when completing an appointment.
-    // Runs outside the status-update connection so billing failures are isolated.
-    if (status === "completed") {
-        try {
-            await createTransactionForAppointment({
-                appointmentId: detail.id,
-                customerId: detail.customer.id,
-                staffId: detail.staff.id,
-                serviceId: detail.service.id,
-                price: detail.price,
-                completedAt: new Date(),
-            });
-        } catch {
-            // Transaction creation is best-effort; do not surface billing errors
-            // to the status-change response. The owner can create/fix it manually.
-        }
-    }
-
-    return detail;
 };
 
 /** Statuses a staff member may move an appointment to. */

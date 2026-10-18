@@ -40,6 +40,8 @@ export const getAvailability = asyncHandler(async (req, res) => {
 /** GET /api/public/availability?serviceId=&date=&staffId= */
 export const getPublicAvailability = asyncHandler(async (req, res) => {
     const result = await availabilityService.getAvailability(parseAvailabilityQuery(req));
+    // Availability is live: never let a browser or proxy serve a stale copy.
+    res.set("Cache-Control", "no-store");
     res.status(200).json({ success: true, data: result });
 });
 
@@ -57,6 +59,7 @@ export const getPublicMonthAvailability = asyncHandler(async (req, res) => {
         month,
         staffId,
     });
+    res.set("Cache-Control", "no-store");
     res.status(200).json({ success: true, data: result });
 });
 

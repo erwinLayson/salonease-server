@@ -8,12 +8,15 @@ export type PaymentStatus = "paid" | "unpaid" | "waived";
 export interface TransactionRow {
     id: number;
     reference: string;
-    appointment_id: number;
+    appointment_id: number | null;
+    event_id: number | null;
     customer_id: number;
     staff_id: number;
     service_id: number;
     subtotal: number;
     total: number;
+    commission_total: number;
+    inventory_cost_total: number;
     payment_method: PaymentMethod;
     payment_status: PaymentStatus;
     notes: string | null;
@@ -31,17 +34,22 @@ export interface TransactionDetailRow extends TransactionRow {
     staff_first_name: string;
     staff_last_name: string;
     service_name: string;
-    appointment_reference: string;
+    appointment_reference: string | null;
+    event_reference: string | null;
+    event_title: string | null;
 }
 
 export interface InsertTransactionInput {
     reference: string;
-    appointmentId: number;
+    appointmentId: number | null;
+    eventId: number | null;
     customerId: number;
     staffId: number;
     serviceId: number;
     subtotal: number;
     total: number;
+    commissionTotal?: number;
+    inventoryCostTotal?: number;
     paymentMethod: PaymentMethod;
     paymentStatus: PaymentStatus;
     completedAt: Date;
@@ -92,8 +100,9 @@ export interface YearlyReportRow {
 }
 
 const DETAIL_SELECT = `
-    SELECT t.id, t.reference, t.appointment_id, t.customer_id, t.staff_id, t.service_id,
-           t.subtotal, t.total, t.payment_method, t.payment_status,
+    SELECT t.id, t.reference, t.appointment_id, t.event_id, t.customer_id, t.staff_id, t.service_id,
+           t.subtotal, t.total, t.commission_total, t.inventory_cost_total,
+           t.payment_method, t.payment_status,
            t.notes, t.completed_at, t.created_at, t.updated_at,
            c.first_name AS customer_first_name,
            c.last_name  AS customer_last_name,
@@ -102,12 +111,15 @@ const DETAIL_SELECT = `
            s.first_name AS staff_first_name,
            s.last_name  AS staff_last_name,
            sv.name      AS service_name,
-           a.reference  AS appointment_reference
+           a.reference  AS appointment_reference,
+           e.reference  AS event_reference,
+           e.title      AS event_title
     FROM transactions t
     JOIN customers c   ON c.id  = t.customer_id
     JOIN staff s       ON s.id  = t.staff_id
     JOIN services sv   ON sv.id = t.service_id
-    JOIN appointments a ON a.id = t.appointment_id
+    LEFT JOIN appointments a ON a.id = t.appointment_id
+    LEFT JOIN events e ON e.id = t.event_id
 `;
 
 export default class TransactionModel {
@@ -117,17 +129,21 @@ export default class TransactionModel {
         try {
             const [result] = await this.connection.execute<ResultSetHeader>(
                 `INSERT INTO transactions
-                    (reference, appointment_id, customer_id, staff_id, service_id,
-                     subtotal, total, payment_method, payment_status, completed_at, notes)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                    (reference, appointment_id, event_id, customer_id, staff_id, service_id,
+                     subtotal, total, commission_total, inventory_cost_total,
+                     payment_method, payment_status, completed_at, notes)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
                     input.reference,
                     input.appointmentId,
+                    input.eventId,
                     input.customerId,
                     input.staffId,
                     input.serviceId,
                     input.subtotal,
                     input.total,
+                    input.commissionTotal ?? 0,
+                    input.inventoryCostTotal ?? 0,
                     input.paymentMethod,
                     input.paymentStatus,
                     input.completedAt,
@@ -145,6 +161,18 @@ export default class TransactionModel {
             const [rows] = await this.connection.execute<RowDataPacket[]>(
                 `${DETAIL_SELECT} WHERE t.id = ? LIMIT 1`,
                 [id]
+            );
+            return (rows[0] as TransactionDetailRow | undefined) ?? null;
+        } catch (err) {
+            throw new InternalServerError("Internal Server Error", 500, err);
+        }
+    }
+
+    async findByEventId(eventId: number): Promise<TransactionDetailRow | null> {
+        try {
+            const [rows] = await this.connection.execute<RowDataPacket[]>(
+                `${DETAIL_SELECT} WHERE t.event_id = ? LIMIT 1`,
+                [eventId]
             );
             return (rows[0] as TransactionDetailRow | undefined) ?? null;
         } catch (err) {
@@ -206,6 +234,21 @@ export default class TransactionModel {
                 params
             );
             return rows as TransactionDetailRow[];
+        } catch (err) {
+            throw new InternalServerError("Internal Server Error", 500, err);
+        }
+    }
+
+    async updateTotals(
+        id: number,
+        commissionTotal: number,
+        inventoryCostTotal: number
+    ): Promise<void> {
+        try {
+            await this.connection.execute(
+                "UPDATE transactions SET commission_total = ?, inventory_cost_total = ? WHERE id = ?",
+                [commissionTotal, inventoryCostTotal, id]
+            );
         } catch (err) {
             throw new InternalServerError("Internal Server Error", 500, err);
         }

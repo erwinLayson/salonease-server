@@ -87,6 +87,7 @@ export const changeStatus = asyncHandler(async (req, res) => {
 
     const data = await appointmentsService.changeStatus(id, parseStatus(body.status), {
         reason: optionalString(body.reason, "reason", 255),
+        actorUserId: req.user?.id ?? null,
     });
 
     res.status(200).json({ success: true, data });
@@ -195,7 +196,10 @@ export const changeMyAppointmentStatus = asyncHandler(async (req, res) => {
         req.user.id,
         requireIdParam(req.params.id),
         parseStatus(body.status),
-        { reason: optionalString(body.reason, "reason", 255) }
+        {
+            reason: optionalString(body.reason, "reason", 255),
+            actorUserId: req.user.id,
+        }
     );
     res.status(200).json({ success: true, data });
 });

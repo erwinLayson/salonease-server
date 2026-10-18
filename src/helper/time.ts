@@ -50,6 +50,14 @@ export const formatDate = (date: Date): string => {
     return `${yyyy}-${mm}-${dd}`;
 };
 
+/**
+ * `YYYY-MM-DD` for a DATE/DATETIME value returned by mysql2. DATE columns come
+ * back as local `Date` objects, so `String(value).slice(0, 10)` would yield
+ * "Sun Oct 18" instead of "2026-10-18".
+ */
+export const toDateString = (value: unknown): string =>
+    value instanceof Date ? formatDate(value) : String(value).slice(0, 10);
+
 /** True when two half-open intervals [aStart,aEnd) and [bStart,bEnd) overlap. */
 export const intervalsOverlap = (
     aStart: Date,
