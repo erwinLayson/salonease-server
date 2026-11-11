@@ -98,6 +98,7 @@ export const PROTECTED_ROUTES: RouteMeta[] = [
     { method: "patch", path: "/api/owner/inventory/alerts/1/acknowledge" },
     { method: "patch", path: "/api/owner/inventory/alerts/1/resolve" },
     { method: "get", path: "/api/owner/inventory/summary" },
+    { method: "get", path: "/api/owner/inventory/recipes" },
     { method: "get", path: "/api/owner/reports/inventory" },
 
     { method: "get", path: "/api/owner/venues" },

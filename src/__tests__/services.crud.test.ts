@@ -53,6 +53,12 @@ test("service price must be >= 0", async () => {
     assert.equal(res.status, 400);
 });
 
+test("service image is required on create", async () => {
+    const res = await apiCreateService(ownerCookie, { image: "" });
+    assert.equal(res.status, 400);
+    assert.match(res.body.message, /image is required/i);
+});
+
 test("service duration must be greater than 0", async () => {
     const res = await apiCreateService(ownerCookie, { durationMinutes: 0 });
     assert.equal(res.status, 400);

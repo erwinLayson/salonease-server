@@ -121,6 +121,7 @@ export interface SupplyInput {
     name: string;
     category: SupplyCategory;
     unit: string;
+    currentQuantity?: number | undefined;
     reorderLevel: number;
     unitCost: number | null;
     supplier: string | null;
@@ -140,17 +141,44 @@ export const getSupply = (id: number): Promise<SupplyDetail> =>
         return toSupply(row);
     });
 
-export const createSupply = (input: SupplyInput): Promise<SupplyDetail> =>
+export const createSupply = (
+    input: SupplyInput,
+    userId: number | null = null
+): Promise<SupplyDetail> =>
     withTransaction(async (connection) => {
         const model = new InventoryModel(connection);
         if (await model.findSupplyBySku(input.sku)) {
             throw new ConflictError("A supply with this SKU already exists");
         }
-        const id = await model.createSupply(input);
+        const initialQty = input.currentQuantity ?? 0;
+        const id = await model.createSupply({
+            ...input,
+            currentQuantity: initialQty,
+        });
+
+        if (initialQty > 0) {
+            await model.insertMovement({
+                supplyId: id,
+                movementType: "initial",
+                quantityDelta: initialQty,
+                balanceAfter: initialQty,
+                unitCost: input.unitCost,
+                referenceType: "manual",
+                referenceId: null,
+                notes: "Initial stock on supply creation",
+                createdBy: userId,
+            });
+        }
+
+        await evaluateAlert(connection, id, userId);
         return toSupply((await model.findSupplyById(id))!);
     });
 
-export const updateSupply = (id: number, input: SupplyInput): Promise<SupplyDetail> =>
+export const updateSupply = (
+    id: number,
+    input: SupplyInput,
+    userId: number | null = null
+): Promise<SupplyDetail> =>
     withTransaction(async (connection) => {
         const model = new InventoryModel(connection);
         const existing = await model.findSupplyById(id);
@@ -162,6 +190,29 @@ export const updateSupply = (id: number, input: SupplyInput): Promise<SupplyDeta
         }
 
         await model.updateSupply(id, input);
+
+        if (
+            input.currentQuantity !== undefined &&
+            input.currentQuantity !== Number(existing.current_quantity)
+        ) {
+            const oldQty = Number(existing.current_quantity);
+            const newQty = input.currentQuantity;
+            const delta = newQty - oldQty;
+            await model.updateQuantity(id, newQty);
+            await model.insertMovement({
+                supplyId: id,
+                movementType: "adjustment",
+                quantityDelta: delta,
+                balanceAfter: newQty,
+                unitCost: input.unitCost ?? existing.unit_cost,
+                referenceType: "manual",
+                referenceId: null,
+                notes: `Stock adjusted in supply details (${oldQty} -> ${newQty})`,
+                createdBy: userId,
+            });
+        }
+
+        await evaluateAlert(connection, id, userId);
         return toSupply((await model.findSupplyById(id))!);
     });
 
@@ -245,6 +296,19 @@ export const getRecipe = (serviceId: number): Promise<RecipeDetail[]> =>
         if (!service) throw new NotFoundError("Service not found", 404);
         const rows = await new InventoryModel(connection).listRecipes(serviceId);
         return rows.map(toRecipe);
+    });
+
+export interface AllRecipeDetail extends RecipeDetail {
+    serviceId: number;
+}
+
+export const listAllRecipes = (): Promise<AllRecipeDetail[]> =>
+    withConnection(async (connection) => {
+        const rows = await new InventoryModel(connection).listAllRecipes();
+        return rows.map((r) => ({
+            ...toRecipe(r),
+            serviceId: r.service_id,
+        }));
     });
 
 export interface RecipeInput {

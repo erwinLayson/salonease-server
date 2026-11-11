@@ -46,11 +46,21 @@ const parseSupplyBody = (body: unknown): inventoryService.SupplyInput => {
         throw new BadRequestError("unitCost must be 0 or more");
     }
 
+    const currentQuantity = present(input.currentQuantity)
+        ? requireNumber(input.currentQuantity, "currentQuantity")
+        : present(input.initialQuantity)
+          ? requireNumber(input.initialQuantity, "initialQuantity")
+          : undefined;
+    if (currentQuantity !== undefined && currentQuantity < 0) {
+        throw new BadRequestError("Current quantity must be 0 or more");
+    }
+
     return {
         sku: requireString(input.sku, "sku", 60),
         name: requireString(input.name, "name", 160),
         category: rawCategory as SupplyCategory,
         unit: requireString(input.unit, "unit", 20),
+        currentQuantity,
         reorderLevel,
         unitCost,
         supplier: optionalString(input.supplier, "supplier", 160),
@@ -82,7 +92,10 @@ export const getSupply = asyncHandler(async (req, res) => {
 
 /** POST /api/owner/supplies */
 export const createSupply = asyncHandler(async (req, res) => {
-    const data = await inventoryService.createSupply(parseSupplyBody(req.body));
+    const data = await inventoryService.createSupply(
+        parseSupplyBody(req.body),
+        req.user?.id ?? null
+    );
     res.status(201).json({ success: true, data });
 });
 
@@ -90,7 +103,8 @@ export const createSupply = asyncHandler(async (req, res) => {
 export const updateSupply = asyncHandler(async (req, res) => {
     const data = await inventoryService.updateSupply(
         requireIdParam(req.params.id),
-        parseSupplyBody(req.body)
+        parseSupplyBody(req.body),
+        req.user?.id ?? null
     );
     res.status(200).json({ success: true, data });
 });
@@ -144,6 +158,12 @@ export const createMovement = asyncHandler(async (req, res) => {
         createdBy: req.user.id,
     });
     res.status(201).json({ success: true, data });
+});
+
+/** GET /api/owner/inventory/recipes */
+export const listAllRecipes = asyncHandler(async (_req, res) => {
+    const data = await inventoryService.listAllRecipes();
+    res.status(200).json({ success: true, data });
 });
 
 /** GET /api/owner/services/:id/supplies */

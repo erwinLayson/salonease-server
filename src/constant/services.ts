@@ -18,6 +18,7 @@ export type ServiceRow = {
     name: string;
     description: string | null;
     category: ServiceCategory;
+    image: string | null;
     price: number; // DECIMAL(10,2); the pool returns it as a number
     duration_minutes: number;
     is_active: number;
@@ -27,8 +28,16 @@ export type CreateServiceInput = {
     name: string;
     description: string | null;
     category: ServiceCategory;
+    image: string;
     price: number;
     durationMinutes: number;
 };
 
-export type UpdateServiceInput = CreateServiceInput;
+export type UpdateServiceInput = {
+    name: string;
+    description: string | null;
+    category: ServiceCategory;
+    image?: string | null;
+    price: number;
+    durationMinutes: number;
+};

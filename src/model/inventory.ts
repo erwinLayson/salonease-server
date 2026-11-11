@@ -141,21 +141,24 @@ export default class InventoryModel {
         name: string;
         category: SupplyCategory;
         unit: string;
+        currentQuantity?: number | undefined;
         reorderLevel: number;
         unitCost: number | null;
         supplier: string | null;
         notes: string | null;
     }): Promise<number> {
+        const initialQty = input.currentQuantity ?? 0;
         try {
             const [result] = await this.connection.execute<ResultSetHeader>(
                 `INSERT INTO supplies
                     (sku, name, category, unit, current_quantity, reorder_level, unit_cost, supplier, notes)
-                 VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?)`,
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
                     input.sku,
                     input.name,
                     input.category,
                     input.unit,
+                    initialQty,
                     input.reorderLevel,
                     input.unitCost,
                     input.supplier,
@@ -315,6 +318,22 @@ export default class InventoryModel {
                  WHERE r.service_id = ? AND r.is_active = 1
                  ORDER BY s.name`,
                 [serviceId]
+            );
+            return rows as RecipeRow[];
+        } catch (err) {
+            throw new InternalServerError("Internal Server Error", 500, err);
+        }
+    }
+
+    async listAllRecipes(): Promise<RecipeRow[]> {
+        try {
+            const [rows] = await this.connection.execute<RowDataPacket[]>(
+                `SELECT r.id, r.service_id, r.supply_id, s.name AS supply_name,
+                        r.unit, r.quantity_per_service, r.is_active
+                 FROM service_supply_usage r
+                 JOIN supplies s ON s.id = r.supply_id
+                 WHERE r.is_active = 1
+                 ORDER BY r.service_id, s.name`
             );
             return rows as RecipeRow[];
         } catch (err) {

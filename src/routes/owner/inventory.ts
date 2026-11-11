@@ -16,6 +16,7 @@ router.get("/inventory/alerts", controller.listAlerts);
 router.patch("/inventory/alerts/:id/acknowledge", controller.acknowledgeAlert);
 router.patch("/inventory/alerts/:id/resolve", controller.resolveAlert);
 router.get("/inventory/summary", controller.summary);
+router.get("/inventory/recipes", controller.listAllRecipes);
 
 router.get("/reports/inventory", controller.usageReport);
 

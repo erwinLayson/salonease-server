@@ -130,6 +130,34 @@ const parseServiceList = (value: unknown): eventService.EventServiceInput[] => {
 const parseEventBody = (body: unknown, requireCustomer = true) => {
     const input = (body ?? {}) as Record<string, unknown>;
     const customer = (input.customer ?? {}) as Record<string, unknown>;
+    const venueLocationRaw = (input.venueLocation ?? input.venue ?? null) as
+        | Record<string, unknown>
+        | null;
+
+    let venueLocation: eventService.VenueLocationInput | null = null;
+    if (venueLocationRaw && (present(venueLocationRaw.name) || present(venueLocationRaw.address))) {
+        venueLocation = {
+            name:
+                optionalString(venueLocationRaw.name, "venueLocation.name", 160) ??
+                optionalString(venueLocationRaw.address, "venueLocation.address", 160) ??
+                "",
+            address:
+                optionalString(venueLocationRaw.address, "venueLocation.address", 255) ??
+                optionalString(venueLocationRaw.name, "venueLocation.name", 255) ??
+                null,
+        };
+    } else if (present(input.venueName) || present(input.venueAddress)) {
+        venueLocation = {
+            name:
+                optionalString(input.venueName, "venueName", 160) ??
+                optionalString(input.venueAddress, "venueAddress", 160) ??
+                "",
+            address:
+                optionalString(input.venueAddress, "venueAddress", 255) ??
+                optionalString(input.venueName, "venueName", 255) ??
+                null,
+        };
+    }
 
     return {
         customer: requireCustomer
@@ -143,6 +171,7 @@ const parseEventBody = (body: unknown, requireCustomer = true) => {
         venueId: present(input.venueId)
             ? requireIdParam(String(input.venueId), "venueId")
             : null,
+        venueLocation,
         title: requireString(input.title, "title", 160),
         eventType: parseEventType(input.eventType),
         startAt: requireDateTimeString(input.startAt, "startAt"),
@@ -245,6 +274,7 @@ export const updateEvent = asyncHandler(async (req, res) => {
     // The event's customer is fixed after creation; only update event fields.
     const data = await eventService.updateEvent(requireIdParam(req.params.id), {
         venueId: parsed.venueId,
+        venueLocation: parsed.venueLocation,
         title: parsed.title,
         eventType: parsed.eventType,
         startAt: parsed.startAt,

@@ -96,6 +96,8 @@ export const listPublicServices = asyncHandler(async (_req, res) => {
             id: service.id,
             name: service.name,
             description: service.description,
+            category: service.category,
+            image: service.image,
             price: service.price,
             durationMinutes: service.duration_minutes,
         })),

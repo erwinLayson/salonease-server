@@ -30,6 +30,7 @@ export type EventRow = {
     customer_email: string | null;
     venue_id: number | null;
     venue_name: string | null;
+    venue_address?: string | null;
     title: string;
     event_type: EventType;
     event_date: string;
@@ -121,7 +122,7 @@ const EVENT_SELECT = `
     SELECT e.id, e.reference, e.customer_id,
            CONCAT_WS(' ', c.first_name, c.last_name) AS customer_name,
            c.phone AS customer_phone, c.email AS customer_email,
-           e.venue_id, v.name AS venue_name, e.title, e.event_type, e.event_date,
+           e.venue_id, v.name AS venue_name, v.address AS venue_address, e.title, e.event_type, e.event_date,
            e.start_at, e.end_at, e.status, e.travel_buffer_minutes, e.notes,
            e.created_by, e.created_at, e.updated_at,
            COALESCE((SELECT SUM(es.price * es.quantity) FROM event_services es
@@ -507,14 +508,14 @@ export default class EventModel {
         staffId: number,
         from: Date,
         to: Date
-    ): Promise<Array<BusyEventAssignmentRow & { role: EventAssignmentRole; venue_name: string | null; event_date: string; start_at: Date; end_at: Date }>> {
+    ): Promise<Array<BusyEventAssignmentRow & { role: EventAssignmentRole; venue_name: string | null; venue_address?: string | null; event_date: string; start_at: Date; end_at: Date }>> {
         try {
             const [rows] = await this.connection.execute<RowDataPacket[]>(
                 `SELECT ea.event_id, e.reference AS event_reference, e.title AS event_title,
                         ea.staff_id, CONCAT_WS(' ', s.first_name, s.last_name) AS staff_name,
                         ea.role, ea.call_time, ea.release_time, ea.travel_required,
                         e.travel_buffer_minutes, ea.status,
-                        v.name AS venue_name, e.event_date, e.start_at, e.end_at
+                        v.name AS venue_name, v.address AS venue_address, e.event_date, e.start_at, e.end_at
                  FROM event_staff_assignments ea
                  JOIN events e ON e.id = ea.event_id
                  JOIN staff s ON s.id = ea.staff_id
@@ -527,6 +528,7 @@ export default class EventModel {
                 BusyEventAssignmentRow & {
                     role: EventAssignmentRole;
                     venue_name: string | null;
+                    venue_address?: string | null;
                     event_date: string;
                     start_at: Date;
                     end_at: Date;

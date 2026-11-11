@@ -9,7 +9,7 @@ import type {
 } from "../constant/services.js";
 
 const SELECT_COLUMNS =
-    "SELECT id, name, description, category, price, duration_minutes, is_active FROM services";
+    "SELECT id, name, description, category, image, price, duration_minutes, is_active FROM services";
 
 export default class ServiceModel {
     constructor(private connection: PoolConnection) {}
@@ -54,12 +54,13 @@ export default class ServiceModel {
     async create(input: CreateServiceInput): Promise<number> {
         try {
             const [result] = await this.connection.execute<ResultSetHeader>(
-                `INSERT INTO services (name, description, category, price, duration_minutes, is_active)
-                 VALUES (?, ?, ?, ?, ?, 1)`,
+                `INSERT INTO services (name, description, category, image, price, duration_minutes, is_active)
+                 VALUES (?, ?, ?, ?, ?, ?, 1)`,
                 [
                     input.name,
                     input.description,
                     input.category,
+                    input.image,
                     input.price,
                     input.durationMinutes,
                 ]
@@ -72,19 +73,36 @@ export default class ServiceModel {
 
     async update(id: number, input: UpdateServiceInput): Promise<void> {
         try {
-            await this.connection.execute(
-                `UPDATE services
-                 SET name = ?, description = ?, category = ?, price = ?, duration_minutes = ?
-                 WHERE id = ?`,
-                [
-                    input.name,
-                    input.description,
-                    input.category,
-                    input.price,
-                    input.durationMinutes,
-                    id,
-                ]
-            );
+            if (input.image !== undefined) {
+                await this.connection.execute(
+                    `UPDATE services
+                     SET name = ?, description = ?, category = ?, image = ?, price = ?, duration_minutes = ?
+                     WHERE id = ?`,
+                    [
+                        input.name,
+                        input.description,
+                        input.category,
+                        input.image,
+                        input.price,
+                        input.durationMinutes,
+                        id,
+                    ]
+                );
+            } else {
+                await this.connection.execute(
+                    `UPDATE services
+                     SET name = ?, description = ?, category = ?, price = ?, duration_minutes = ?
+                     WHERE id = ?`,
+                    [
+                        input.name,
+                        input.description,
+                        input.category,
+                        input.price,
+                        input.durationMinutes,
+                        id,
+                    ]
+                );
+            }
         } catch (err) {
             throw new InternalServerError("Internal Server Error", 500, err);
         }

@@ -1,12 +1,11 @@
 import { randomBytes } from "node:crypto";
 import request from "supertest";
+import app from "../app.js";
 
 // Types
 import type { Response, Test } from "supertest";
 
 const pad = (value: number): string => String(value).padStart(2, "0");
-
-export { pad, Signal as CompletionSignal, createTestBookings, createCompletionSignals, wait } from "../lib/testHelpers";
 
 export const uniqueSuffix = (): string => randomBytes(3).toString("hex");
 
@@ -42,6 +41,9 @@ export const apiSetupBookable = async (
     return { staffId: staff.body.data.id, serviceId: service.body.data.id };
 };
 
+const DUMMY_SERVICE_IMAGE =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+
 export const apiCreateService = (
     cookie: string | undefined,
     overrides: Record<string, unknown> = {}
@@ -52,6 +54,7 @@ export const apiCreateService = (
         .send({
             name: `Test Service ${uniqueSuffix()}`,
             description: "Created by the test suite",
+            image: DUMMY_SERVICE_IMAGE,
             price: 100,
             durationMinutes: 30,
             ...overrides,

@@ -2,10 +2,12 @@ import { asyncHandler } from "../helper/asyncHandler.js";
 import { BadRequestError } from "../helper/error.js";
 import { BOOKING_RULES } from "../config/booking.js";
 import {
+    optionalImageDataUrl,
     optionalString,
     requireBoolean,
     requireDateString,
     requireIdParam,
+    requireImageDataUrl,
     requireInteger,
     requireNumber,
     requireString,
@@ -16,12 +18,15 @@ import * as availabilityService from "../service/availability.js";
 
 // Types
 import { SERVICE_CATEGORIES } from "../constant/services.js";
-import type { CreateServiceInput, ServiceCategory } from "../constant/services.js";
+import type { CreateServiceInput, ServiceCategory, UpdateServiceInput } from "../constant/services.js";
 
 const MAX_DURATION_MINUTES = 24 * 60;
 
 /** Parses and validates a service payload. */
-const parseServiceBody = (body: unknown): CreateServiceInput => {
+const parseServiceBody = (
+    body: unknown,
+    isCreate = false
+): CreateServiceInput | UpdateServiceInput => {
     const input = (body ?? {}) as Record<string, unknown>;
 
     const name = requireString(input.name, "name", 120);
@@ -58,7 +63,22 @@ const parseServiceBody = (body: unknown): CreateServiceInput => {
         throw new BadRequestError(`durationMinutes must be a multiple of ${step} minutes`);
     }
 
-    return { name, description, category, price, durationMinutes };
+    if (isCreate) {
+        const image = requireImageDataUrl(input.image, "image");
+        return { name, description, category, image, price, durationMinutes };
+    }
+
+    const image =
+        input.image !== undefined ? optionalImageDataUrl(input.image, "image") : undefined;
+
+    return {
+        name,
+        description,
+        category,
+        price,
+        durationMinutes,
+        ...(image !== undefined ? { image } : {}),
+    };
 };
 
 /** GET /api/owner/services?includeInactive=true */
@@ -76,14 +96,16 @@ export const getService = asyncHandler(async (req, res) => {
 
 /** POST /api/owner/services */
 export const createService = asyncHandler(async (req, res) => {
-    const created = await serviceService.createService(parseServiceBody(req.body));
+    const created = await serviceService.createService(
+        parseServiceBody(req.body, true) as CreateServiceInput
+    );
     res.status(201).json({ success: true, data: created });
 });
 
 /** PUT /api/owner/services/:id */
 export const updateService = asyncHandler(async (req, res) => {
     const id = requireIdParam(req.params.id);
-    const updated = await serviceService.updateService(id, parseServiceBody(req.body));
+    const updated = await serviceService.updateService(id, parseServiceBody(req.body, false));
     res.status(200).json({ success: true, data: updated });
 });
 

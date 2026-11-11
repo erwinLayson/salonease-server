@@ -126,10 +126,38 @@ export const optionalPhone = (value: unknown, field = "phone"): string | null =>
 export const optionalImageDataUrl = (
     value: unknown,
     field = "image",
-    maxLength = 400_000
+    maxLength = 1_000_000
 ): string | null => {
     if (value === undefined || value === null || value === "") {
         return null;
+    }
+
+    if (typeof value !== "string") {
+        throw new BadRequestError(`${field} must be a string`);
+    }
+
+    if (value.length > maxLength) {
+        throw new BadRequestError(`${field} is too large`);
+    }
+
+    if (!IMAGE_DATA_URL_PATTERN.test(value)) {
+        throw new BadRequestError(`${field} must be a PNG, JPEG or WebP image`);
+    }
+
+    return value;
+};
+
+/**
+ * Reads a required image data URL (e.g. a service image).
+ * Bounded so a malicious client can't stuff an enormous blob into the row.
+ */
+export const requireImageDataUrl = (
+    value: unknown,
+    field = "image",
+    maxLength = 1_000_000
+): string => {
+    if (value === undefined || value === null || value === "") {
+        throw new BadRequestError(`${field} is required`);
     }
 
     if (typeof value !== "string") {

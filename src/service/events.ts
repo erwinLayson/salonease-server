@@ -71,7 +71,7 @@ export interface EventDetail {
         phone: string | null;
         email: string | null;
     };
-    venue: { id: number; name: string } | null;
+    venue: { id: number; name: string; address?: string } | null;
     title: string;
     eventType: EventType;
     eventDate: string;
@@ -134,7 +134,13 @@ const toEventBase = (row: EventRow): Omit<EventDetail, "services" | "assignments
         phone: row.customer_phone,
         email: row.customer_email,
     },
-    venue: row.venue_id ? { id: row.venue_id, name: row.venue_name ?? "" } : null,
+    venue: row.venue_id
+        ? {
+              id: row.venue_id,
+              name: row.venue_name ?? "",
+              address: row.venue_address ?? "",
+          }
+        : null,
     title: row.title,
     eventType: row.event_type,
     eventDate: dateOnly(row.event_date),
@@ -295,9 +301,15 @@ export interface EventAssignmentInput {
     notes?: string | null | undefined;
 }
 
+export interface VenueLocationInput {
+    name: string;
+    address?: string | null;
+}
+
 export interface CreateEventInput {
     customer: EventCustomerInput;
     venueId: number | null;
+    venueLocation?: VenueLocationInput | null;
     title: string;
     eventType: EventType;
     startAt: Date;
@@ -465,6 +477,45 @@ const replaceAssignments = async (
     );
 };
 
+const resolveVenueId = async (
+    connection: PoolConnection,
+    venueId: number | null,
+    venueLocation?: VenueLocationInput | null
+): Promise<number | null> => {
+    const model = new EventModel(connection);
+    if (venueLocation && (venueLocation.name?.trim() || venueLocation.address?.trim())) {
+        const trimmedName = (venueLocation.name?.trim() || venueLocation.address?.trim())!;
+        const trimmedAddress = (venueLocation.address?.trim() || trimmedName);
+        const existing = await model.findVenueByName(trimmedName);
+        if (existing) {
+            if (trimmedAddress && existing.address !== trimmedAddress) {
+                await model.updateVenue(existing.id, {
+                    name: existing.name,
+                    address: trimmedAddress,
+                    contactName: existing.contact_name,
+                    contactPhone: existing.contact_phone,
+                    notes: existing.notes,
+                });
+            }
+            return existing.id;
+        }
+        const newId = await model.createVenue({
+            name: trimmedName,
+            address: trimmedAddress,
+            contactName: null,
+            contactPhone: null,
+            notes: null,
+        });
+        return newId;
+    }
+    if (venueId !== null) {
+        const venue = await model.findVenueById(venueId);
+        if (!venue) throw new NotFoundError("Venue not found", 404);
+        return venue.id;
+    }
+    return null;
+};
+
 export const createEvent = async (input: CreateEventInput): Promise<EventDetail> => {
     const id = await withTransaction(async (connection) => {
         if (input.endAt <= input.startAt) {
@@ -492,11 +543,11 @@ export const createEvent = async (input: CreateEventInput): Promise<EventDetail>
             };
         }
 
-        const venueId = input.venueId;
-        if (venueId !== null) {
-            const venue = await new EventModel(connection).findVenueById(venueId);
-            if (!venue) throw new NotFoundError("Venue not found", 404);
-        }
+        const venueId = await resolveVenueId(
+            connection,
+            input.venueId,
+            input.venueLocation
+        );
 
         const model = new EventModel(connection);
         const id = await model.insertEvent({
@@ -529,6 +580,7 @@ export const createEvent = async (input: CreateEventInput): Promise<EventDetail>
 
 export interface UpdateEventInput {
     venueId: number | null;
+    venueLocation?: VenueLocationInput | null;
     title: string;
     eventType: EventType;
     startAt: Date;
@@ -551,13 +603,14 @@ export const updateEvent = async (
         const existing = await model.findEventById(id);
         if (!existing) throw new NotFoundError("Event not found", 404);
 
-        if (input.venueId !== null) {
-            const venue = await model.findVenueById(input.venueId);
-            if (!venue) throw new NotFoundError("Venue not found", 404);
-        }
+        const venueId = await resolveVenueId(
+            connection,
+            input.venueId,
+            input.venueLocation
+        );
 
         await model.updateEvent(id, {
-            venueId: input.venueId,
+            venueId,
             title: input.title,
             eventType: input.eventType,
             eventDate: formatDate(input.startAt),
@@ -892,6 +945,7 @@ export interface StaffEventDetail {
     startAt: Date;
     endAt: Date;
     venueName: string | null;
+    venueAddress?: string | null;
     role: EventAssignmentRole;
     callTime: Date;
     releaseTime: Date;
@@ -919,6 +973,7 @@ export const listEventsForStaffUser = async (
         startAt: row.start_at,
         endAt: row.end_at,
         venueName: row.venue_name,
+        venueAddress: row.venue_address ?? null,
         role: row.role,
         callTime: row.call_time,
         releaseTime: row.release_time,
