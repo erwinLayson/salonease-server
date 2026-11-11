@@ -14,7 +14,7 @@ import {
 } from "../helper/error.js";
 import { canTransitionEvent, eventStatusLabel } from "../constant/events.js";
 import { assignmentInterval, findConflicts } from "./eventConflicts.js";
-import { evaluateAlert } from "./inventory.js";
+import { deductForEvent, evaluateAlert } from "./inventory.js";
 import { findStaffForUser } from "./appointments.js";
 import { createTransactionForEventInConnection } from "./transactions.js";
 import { accrueForEvent } from "./commissions.js";
@@ -634,7 +634,8 @@ export const updateEvent = async (
 
 export const changeEventStatus = async (
     id: number,
-    status: EventStatus
+    status: EventStatus,
+    actorUserId?: number | null
 ): Promise<EventDetail> => {
     await withTransaction(async (connection) => {
         const model = new EventModel(connection);
@@ -681,6 +682,15 @@ export const changeEventStatus = async (
                 serviceId: services[0]!.service_id,
                 price: Number(event.total),
                 completedAt: new Date(),
+            });
+
+            await deductForEvent(connection, {
+                eventId: id,
+                services: services.map((s) => ({
+                    serviceId: s.service_id,
+                    quantity: s.quantity,
+                })),
+                createdBy: actorUserId ?? null,
             });
 
             await accrueForEvent(connection, {

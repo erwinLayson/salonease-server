@@ -488,6 +488,108 @@ export const deductForAppointment = async (
     return results;
 };
 
+/**
+ * Deducts service recipes from stock for all services included in an event.
+ * Must run inside the event completion transaction. Idempotent per event + supply.
+ */
+export const deductForEvent = async (
+    connection: PoolConnection,
+    opts: {
+        eventId: number;
+        services: Array<{ serviceId: number; quantity: number }>;
+        createdBy: number | null;
+    }
+): Promise<DeductionResult[]> => {
+    const model = new InventoryModel(connection);
+
+    // Aggregate required quantities across all services in the event
+    const neededBySupply = new Map<
+        number,
+        { supplyId: number; totalQuantity: number; serviceNotes: string[] }
+    >();
+
+    for (const item of opts.services) {
+        const recipes = await model.listRecipes(item.serviceId);
+        for (const recipe of recipes) {
+            const qtyNeeded = Number(recipe.quantity_per_service) * Number(item.quantity);
+            if (qtyNeeded <= 0) continue;
+
+            const existing = neededBySupply.get(recipe.supply_id);
+            if (existing) {
+                existing.totalQuantity += qtyNeeded;
+                existing.serviceNotes.push(`${item.quantity}x service #${item.serviceId}`);
+            } else {
+                neededBySupply.set(recipe.supply_id, {
+                    supplyId: recipe.supply_id,
+                    totalQuantity: qtyNeeded,
+                    serviceNotes: [`${item.quantity}x service #${item.serviceId}`],
+                });
+            }
+        }
+    }
+
+    // Sort by supplyId ascending to serialize row locking and avoid deadlocks
+    const sortedSupplies = Array.from(neededBySupply.values()).sort(
+        (a, b) => a.supplyId - b.supplyId
+    );
+
+    const results: DeductionResult[] = [];
+
+    for (const needed of sortedSupplies) {
+        const already = await model.findAutomaticMovement(
+            "event",
+            opts.eventId,
+            needed.supplyId,
+            "usage"
+        );
+        if (already) {
+            results.push({
+                supplyId: needed.supplyId,
+                supplyName: already.supply_name ?? "",
+                quantity: Math.abs(Number(already.quantity_delta)),
+                balanceAfter: Number(already.balance_after),
+            });
+            continue;
+        }
+
+        const supply = await model.lockSupplyRow(needed.supplyId);
+        if (!supply || supply.is_active !== 1) continue;
+
+        const quantity = needed.totalQuantity;
+        const before = Number(supply.current_quantity);
+        if (before < quantity) {
+            throw new ConflictError(
+                `Not enough ${supply.name} in stock. Needed ${quantity} ${supply.unit}, available ${before}.`
+            );
+        }
+
+        const after = before - quantity;
+        await model.updateQuantity(supply.id, after);
+        await model.insertMovement({
+            supplyId: supply.id,
+            movementType: "usage",
+            quantityDelta: -quantity,
+            balanceAfter: after,
+            unitCost: supply.unit_cost,
+            referenceType: "event",
+            referenceId: opts.eventId,
+            notes: `Consumed by event #${opts.eventId} (${needed.serviceNotes.join(", ")})`,
+            createdBy: opts.createdBy,
+        });
+
+        await evaluateAlert(connection, supply.id, opts.createdBy);
+
+        results.push({
+            supplyId: supply.id,
+            supplyName: supply.name,
+            quantity,
+            balanceAfter: after,
+        });
+    }
+
+    return results;
+};
+
 export interface UsageReportDetail {
     serviceId: number | null;
     serviceName: string | null;

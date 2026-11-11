@@ -296,7 +296,8 @@ export const changeStatus = asyncHandler(async (req, res) => {
     }
     const data = await eventService.changeEventStatus(
         requireIdParam(req.params.id),
-        raw as EventStatus
+        raw as EventStatus,
+        req.user?.id ?? null
     );
     res.status(200).json({ success: true, data });
 });
