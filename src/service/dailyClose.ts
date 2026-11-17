@@ -20,7 +20,6 @@ export interface DailyClosureDetail {
     gcashTotal: number;
     cardTotal: number;
     otherTotal: number;
-    commissionTotal: number;
     inventoryCostTotal: number;
     transactionCount: number;
     cashCounted: number | null;
@@ -43,7 +42,6 @@ export interface DaySummary extends DailyClosureDetail {
         gcashTotal: number;
         cardTotal: number;
         otherTotal: number;
-        commissionTotal: number;
         inventoryCostTotal: number;
     };
 }
@@ -61,7 +59,6 @@ const toDetail = (row: DailyClosureRow): DailyClosureDetail => ({
     gcashTotal: Number(row.gcash_total),
     cardTotal: Number(row.card_total),
     otherTotal: Number(row.other_total),
-    commissionTotal: Number(row.commission_total),
     inventoryCostTotal: Number(row.inventory_cost_total),
     transactionCount: Number(row.transaction_count),
     cashCounted: row.cash_counted === null ? null : Number(row.cash_counted),
@@ -96,7 +93,6 @@ export const getDaySummary = (date: string): Promise<DaySummary> =>
             gcashTotal: Number(summary.gcash_total),
             cardTotal: Number(summary.card_total),
             otherTotal: Number(summary.other_total),
-            commissionTotal: Number(summary.commission_total),
             inventoryCostTotal: Number(summary.inventory_cost_total),
         };
 
@@ -114,7 +110,6 @@ export const getDaySummary = (date: string): Promise<DaySummary> =>
                 gcashTotal: live.gcashTotal,
                 cardTotal: live.cardTotal,
                 otherTotal: live.otherTotal,
-                commissionTotal: live.commissionTotal,
                 inventoryCostTotal: live.inventoryCostTotal,
                 transactionCount: live.transactionCount,
                 cashCounted: null,
@@ -166,7 +161,6 @@ export const closeDay = (input: CloseDayInput): Promise<DailyClosureDetail> =>
             gcashTotal: Number(summary.gcash_total),
             cardTotal: Number(summary.card_total),
             otherTotal: Number(summary.other_total),
-            commissionTotal: Number(summary.commission_total),
             inventoryCostTotal: Number(summary.inventory_cost_total),
             transactionCount: Number(summary.transaction_count),
             cashCounted: input.cashCounted,
@@ -234,7 +228,6 @@ export const getSalesReport = (
             transactions: Number(row.transactions),
             gross: Number(row.gross),
             paid: Number(row.paid),
-            commission: Number(row.commission),
         }));
     });
 
@@ -251,26 +244,8 @@ export interface ReconciliationReport {
         serviceName: string | null;
         amount: number;
     }>;
-    missingCommissions: Array<{
-        id: number;
-        reference: string;
-        completedAt: Date;
-        staffName: string;
-        subtotal: number;
-        appointmentId: number | null;
-        eventId: number | null;
-    }>;
-    commissionMismatches: Array<{
-        id: number;
-        reference: string;
-        completedAt: Date;
-        storedTotal: number;
-        ledgerTotal: number;
-    }>;
     counts: {
         missingTransactions: number;
-        missingCommissions: number;
-        commissionMismatches: number;
     };
 }
 
@@ -284,11 +259,9 @@ export const getReconciliation = async (
 ): Promise<ReconciliationReport> => {
     return withConnection(async (connection) => {
         const model = new DailyCloseModel(connection);
-        const [appointments, events, missingCommissions, mismatches] = await Promise.all([
+        const [appointments, events] = await Promise.all([
             model.missingAppointmentTransactions(from, to),
             model.missingEventTransactions(from, to),
-            model.missingCommissions(from, to),
-            model.commissionMismatches(from, to),
         ]);
 
         const missingTransactions = [...appointments, ...events].map((row) => ({
@@ -306,32 +279,9 @@ export const getReconciliation = async (
             from: formatDate(from),
             to: formatDate(new Date(to.getTime() - 1)),
             missingTransactions,
-            missingCommissions: missingCommissions.map((row) => ({
-                id: Number(row.id),
-                reference: row.reference,
-                completedAt: row.completed_at,
-                staffName: row.staff_name,
-                subtotal: Number(row.subtotal),
-                appointmentId: row.appointment_id === null ? null : Number(row.appointment_id),
-                eventId: row.event_id === null ? null : Number(row.event_id),
-            })),
-            commissionMismatches: mismatches.map((row) => ({
-                id: Number(row.id),
-                reference: row.reference,
-                completedAt: row.completed_at,
-                storedTotal: Number(row.stored_total),
-                ledgerTotal: Number(row.ledger_total),
-            })),
             counts: {
                 missingTransactions: missingTransactions.length,
-                missingCommissions: missingCommissions.length,
-                commissionMismatches: mismatches.length,
             },
         };
     });
 };
-
-export const getCommissionReport = (from: Date, to: Date) =>
-    withConnection((connection) =>
-        new DailyCloseModel(connection).commissionSummary(from, to)
-    );

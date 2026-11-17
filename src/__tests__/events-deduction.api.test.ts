@@ -151,10 +151,6 @@ after(async () => {
         if (createdEventIds.length > 0) {
             const placeholders = createdEventIds.map(() => "?").join(", ");
             await connection.execute(
-                `DELETE FROM commission_entries WHERE event_id IN (${placeholders})`,
-                createdEventIds
-            );
-            await connection.execute(
                 `DELETE FROM transactions WHERE event_id IN (${placeholders})`,
                 createdEventIds
             );

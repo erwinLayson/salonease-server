@@ -96,9 +96,6 @@ const parseAssignmentList = (value: unknown): eventService.EventAssignmentInput[
                     ? true
                     : requireBoolean(item.travelRequired, "travelRequired"),
             status: parseAssignmentStatus(item.status),
-            commissionSharePercent: present(item.commissionSharePercent)
-                ? requireNumber(item.commissionSharePercent, "commissionSharePercent")
-                : null,
             notes: optionalString(item.notes, "notes", 255),
         };
     });

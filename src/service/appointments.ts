@@ -6,7 +6,6 @@ import { createBooking } from "./booking.js";
 import { getAvailability } from "./availability.js";
 import { createTransactionForAppointmentInConnection } from "./transactions.js";
 import { deductForAppointment } from "./inventory.js";
-import { accrueForAppointment } from "./commissions.js";
 import { assertDayOpen } from "./dailyClose.js";
 import { withConnection, withTransaction } from "../helper/withConnection.js";
 import { addMinutes, formatDate, formatTime } from "../helper/time.js";
@@ -167,7 +166,7 @@ export const changeStatus = async (
             await model.updateStatus(id, status, { reason: options.reason ?? null });
             const detail = toDetail((await model.findByIdWithDetails(id))!);
 
-            const transaction = await createTransactionForAppointmentInConnection(
+            await createTransactionForAppointmentInConnection(
                 connection,
                 {
                     appointmentId: detail.id,
@@ -183,14 +182,6 @@ export const changeStatus = async (
                 appointmentId: detail.id,
                 serviceId: detail.service.id,
                 createdBy: options.actorUserId ?? null,
-            });
-
-            await accrueForAppointment(connection, {
-                appointmentId: detail.id,
-                transaction,
-                staffId: detail.staff.id,
-                serviceId: detail.service.id,
-                completedAt: transaction.completedAt,
             });
 
             return detail;

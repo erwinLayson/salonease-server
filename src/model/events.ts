@@ -65,7 +65,6 @@ export type EventAssignmentRow = {
     release_time: Date;
     travel_required: number;
     status: EventAssignmentStatus;
-    commission_share_percent: number | null;
     notes: string | null;
 };
 
@@ -136,7 +135,7 @@ const ASSIGNMENT_SELECT = `
     SELECT ea.id, ea.event_id, ea.staff_id,
            CONCAT_WS(' ', s.first_name, s.last_name) AS staff_name,
            ea.role, ea.call_time, ea.release_time, ea.travel_required,
-           ea.status, ea.commission_share_percent, ea.notes
+           ea.status, ea.notes
     FROM event_staff_assignments ea
     JOIN staff s ON s.id = ea.staff_id
 `;
@@ -434,7 +433,6 @@ export default class EventModel {
             releaseTime: Date;
             travelRequired: boolean;
             status: EventAssignmentStatus;
-            commissionSharePercent: number | null;
             notes: string | null;
         }>
     ): Promise<void> {
@@ -447,8 +445,8 @@ export default class EventModel {
                 await this.connection.execute(
                     `INSERT INTO event_staff_assignments
                         (event_id, staff_id, role, call_time, release_time, travel_required,
-                         status, commission_share_percent, notes)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                         status, notes)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
                     [
                         eventId,
                         item.staffId,
@@ -457,7 +455,6 @@ export default class EventModel {
                         item.releaseTime,
                         item.travelRequired ? 1 : 0,
                         item.status,
-                        item.commissionSharePercent,
                         item.notes,
                     ]
                 );

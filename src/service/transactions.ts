@@ -34,7 +34,6 @@ export interface TransactionDetail {
     service: { id: number; name: string };
     subtotal: number;
     total: number;
-    commissionTotal: number;
     inventoryCostTotal: number;
     paymentMethod: PaymentMethod;
     paymentStatus: PaymentStatus;
@@ -69,7 +68,6 @@ const toDetail = (row: TransactionDetailRow): TransactionDetail => ({
     service: { id: row.service_id, name: row.service_name },
     subtotal: row.subtotal,
     total: row.total,
-    commissionTotal: Number(row.commission_total ?? 0),
     inventoryCostTotal: Number(row.inventory_cost_total ?? 0),
     paymentMethod: row.payment_method,
     paymentStatus: row.payment_status,
@@ -100,8 +98,8 @@ export interface AppointmentTransactionInput {
 
 /**
  * Creates (or returns) the transaction for a completed appointment using an
- * existing transaction connection. Completion, stock deduction and commission
- * accrual all share this connection so they commit or roll back together.
+ * existing transaction connection. Completion and stock deduction share this
+ * connection so they commit or roll back together.
  */
 export const createTransactionForAppointmentInConnection = async (
     connection: PoolConnection,

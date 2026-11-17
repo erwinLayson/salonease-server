@@ -15,7 +15,6 @@ export interface TransactionRow {
     service_id: number;
     subtotal: number;
     total: number;
-    commission_total: number;
     inventory_cost_total: number;
     payment_method: PaymentMethod;
     payment_status: PaymentStatus;
@@ -48,7 +47,6 @@ export interface InsertTransactionInput {
     serviceId: number;
     subtotal: number;
     total: number;
-    commissionTotal?: number;
     inventoryCostTotal?: number;
     paymentMethod: PaymentMethod;
     paymentStatus: PaymentStatus;
@@ -101,7 +99,7 @@ export interface YearlyReportRow {
 
 const DETAIL_SELECT = `
     SELECT t.id, t.reference, t.appointment_id, t.event_id, t.customer_id, t.staff_id, t.service_id,
-           t.subtotal, t.total, t.commission_total, t.inventory_cost_total,
+           t.subtotal, t.total, t.inventory_cost_total,
            t.payment_method, t.payment_status,
            t.notes, t.completed_at, t.created_at, t.updated_at,
            c.first_name AS customer_first_name,
@@ -130,9 +128,9 @@ export default class TransactionModel {
             const [result] = await this.connection.execute<ResultSetHeader>(
                 `INSERT INTO transactions
                     (reference, appointment_id, event_id, customer_id, staff_id, service_id,
-                     subtotal, total, commission_total, inventory_cost_total,
+                     subtotal, total, inventory_cost_total,
                      payment_method, payment_status, completed_at, notes)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
                     input.reference,
                     input.appointmentId,
@@ -142,7 +140,6 @@ export default class TransactionModel {
                     input.serviceId,
                     input.subtotal,
                     input.total,
-                    input.commissionTotal ?? 0,
                     input.inventoryCostTotal ?? 0,
                     input.paymentMethod,
                     input.paymentStatus,
@@ -234,21 +231,6 @@ export default class TransactionModel {
                 params
             );
             return rows as TransactionDetailRow[];
-        } catch (err) {
-            throw new InternalServerError("Internal Server Error", 500, err);
-        }
-    }
-
-    async updateTotals(
-        id: number,
-        commissionTotal: number,
-        inventoryCostTotal: number
-    ): Promise<void> {
-        try {
-            await this.connection.execute(
-                "UPDATE transactions SET commission_total = ?, inventory_cost_total = ? WHERE id = ?",
-                [commissionTotal, inventoryCostTotal, id]
-            );
         } catch (err) {
             throw new InternalServerError("Internal Server Error", 500, err);
         }

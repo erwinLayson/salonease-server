@@ -30,12 +30,6 @@ let secondStaffId: number;
 let secondStaffCookie: string | undefined;
 let serviceId: number;
 
-let ruleId: number;
-let previewRuleId: number;
-let appointmentId: number;
-let entryId: number;
-let payoutId: number;
-
 const today = (): string => dateInDays(0);
 
 /**
@@ -83,17 +77,6 @@ const apiPath = (path: string, query: Record<string, string> = {}): string => {
     const suffix = params.size > 0 ? `?${params.toString()}` : "";
     return `${path}${suffix}`;
 };
-
-const entriesFor = (id: number) =>
-    send(
-        "get",
-        apiPath("/api/owner/commissions/entries", {
-            staffId: String(id),
-            from: today(),
-            to: today(),
-        }),
-        ownerCookie
-    );
 
 const complete = (id: number) =>
     send("patch", `/api/owner/appointments/${id}/status`, ownerCookie).send({
@@ -159,10 +142,6 @@ after(async () => {
     const connection = await databasePool().getConnection();
     try {
         await connection.execute(
-            "DELETE FROM commission_payouts WHERE staff_id IN (?, ?)",
-            [staffId, secondStaffId]
-        );
-        await connection.execute(
             "DELETE FROM daily_sales_closures WHERE business_date = ?",
             [today()]
         );
@@ -189,192 +168,6 @@ after(async () => {
     await send("delete", `/api/owner/services/${serviceId}`, ownerCookie);
     await deleteTestUser(owner.id);
     await closeDatabasePool();
-});
-
-test("owner creates a commission rule for one staff member and service", async () => {
-    const res = await send("post", "/api/owner/commission-rules", ownerCookie).send({
-        staffId,
-        serviceId,
-        rateType: "percent",
-        rateValue: 10,
-        effectiveFrom: today(),
-        priority: 5,
-    });
-
-    assert.equal(res.status, 201);
-    ruleId = res.body.data.id;
-    assert.equal(res.body.data.rateValue, 10);
-    assert.equal(res.body.data.staffId, staffId);
-});
-
-test("commission rule inputs are validated", async () => {
-    const percent = await send("post", "/api/owner/commission-rules", ownerCookie).send({
-        staffId,
-        rateType: "percent",
-        rateValue: 150,
-        effectiveFrom: today(),
-    });
-    assert.equal(percent.status, 400);
-
-    const dateRange = await send("post", "/api/owner/commission-rules", ownerCookie).send({
-        staffId,
-        rateType: "fixed",
-        rateValue: 20,
-        effectiveFrom: "2026-10-10",
-        effectiveTo: "2026-10-01",
-    });
-    assert.equal(dateRange.status, 400);
-});
-
-test("rules support update and delete", async () => {
-    const created = await send("post", "/api/owner/commission-rules", ownerCookie).send({
-        serviceId,
-        rateType: "percent",
-        rateValue: 5,
-        effectiveFrom: "2027-01-01",
-    });
-    assert.equal(created.status, 201);
-    previewRuleId = created.body.data.id;
-
-    const updated = await send(
-        "put",
-        `/api/owner/commission-rules/${previewRuleId}`,
-        ownerCookie
-    ).send({
-        serviceId,
-        rateType: "percent",
-        rateValue: 7,
-        effectiveFrom: "2027-01-01",
-        priority: 1,
-    });
-    assert.equal(updated.status, 200);
-    assert.equal(updated.body.data.rateValue, 7);
-
-    const removed = await send(
-        "delete",
-        `/api/owner/commission-rules/${previewRuleId}`,
-        ownerCookie
-    );
-    assert.equal(removed.status, 204);
-});
-
-test("preview calculator resolves the most specific rule without writing", async () => {
-    const res = await send(
-        "post",
-        "/api/owner/commission-rules/preview",
-        ownerCookie
-    ).send({ staffId, serviceId, baseAmount: 250, date: today() });
-
-    assert.equal(res.status, 200);
-    assert.equal(res.body.data.rule.id, ruleId);
-    assert.equal(res.body.data.commissionAmount, 25);
-});
-
-test("completing an appointment accrues exactly one commission entry", async () => {
-    appointmentId = await insertFinanceAppointment({
-        staffId,
-        serviceId,
-        status: "confirmed",
-    });
-
-    const completed = await complete(appointmentId);
-    assert.equal(completed.status, 200);
-    assert.equal(completed.body.data.status, "completed");
-
-    const entries = await entriesFor(staffId);
-    assert.equal(entries.status, 200);
-    assert.equal(entries.body.data.length, 1);
-    entryId = entries.body.data[0].id;
-    assert.equal(entries.body.data[0].baseAmount, 100);
-    assert.equal(entries.body.data[0].commissionAmount, 10);
-    assert.equal(entries.body.data[0].status, "accrued");
-
-    // Retrying completion is rejected by the status guard, and the entry is
-    // still unique per (source, staff).
-    const retry = await complete(appointmentId);
-    assert.ok(retry.status === 400 || retry.status === 409);
-    const again = await entriesFor(staffId);
-    assert.equal(again.body.data.length, 1);
-});
-
-test("a payout flows draft → approved → paid and settles its entries", async () => {
-    const created = await send("post", "/api/owner/commission-payouts", ownerCookie).send({
-        staffId,
-        periodStart: today(),
-        periodEnd: today(),
-        notes: "Finance test payout",
-    });
-    assert.equal(created.status, 201);
-    payoutId = created.body.data.id;
-    assert.equal(created.body.data.totalAmount, 10);
-    assert.equal(created.body.data.status, "draft");
-
-    const paidTooEarly = await send(
-        "patch",
-        `/api/owner/commission-payouts/${payoutId}/status`,
-        ownerCookie
-    ).send({ status: "paid", paymentMethod: "cash" });
-    assert.equal(paidTooEarly.status, 409);
-
-    const approved = await send(
-        "patch",
-        `/api/owner/commission-payouts/${payoutId}/status`,
-        ownerCookie
-    ).send({ status: "approved" });
-    assert.equal(approved.status, 200);
-    assert.equal(approved.body.data.status, "approved");
-
-    const paid = await send(
-        "patch",
-        `/api/owner/commission-payouts/${payoutId}/status`,
-        ownerCookie
-    ).send({ status: "paid", paymentMethod: "cash" });
-    assert.equal(paid.status, 200);
-    assert.equal(paid.body.data.status, "paid");
-    assert.ok(paid.body.data.paidAt);
-
-    const entries = await entriesFor(staffId);
-    assert.equal(entries.body.data[0].payoutId, payoutId);
-    assert.equal(entries.body.data[0].status, "paid");
-});
-
-test("a second payout for the same period is rejected", async () => {
-    const res = await send("post", "/api/owner/commission-payouts", ownerCookie).send({
-        staffId,
-        periodStart: today(),
-        periodEnd: today(),
-    });
-    assert.equal(res.status, 409);
-});
-
-test("staff see only their own commission entries and payouts", async () => {
-    const mine = await send(
-        "get",
-        apiPath("/api/staff/commissions", { from: today(), to: today() }),
-        staffCookie
-    );
-    assert.equal(mine.status, 200);
-    assert.equal(mine.body.data.length, 1);
-    assert.equal(mine.body.data[0].id, entryId);
-
-    const payouts = await send("get", "/api/staff/commission-payouts", staffCookie);
-    assert.equal(payouts.status, 200);
-    assert.equal(payouts.body.data.length, 1);
-
-    const other = await send(
-        "get",
-        apiPath("/api/staff/commissions", { from: today(), to: today() }),
-        secondStaffCookie
-    );
-    assert.equal(other.status, 200);
-    assert.equal(other.body.data.length, 0);
-
-    const otherPayouts = await send(
-        "get",
-        "/api/staff/commission-payouts",
-        secondStaffCookie
-    );
-    assert.equal(otherPayouts.body.data.length, 0);
 });
 
 test("a completed appointment with no transaction appears in reconciliation", async () => {
@@ -439,7 +232,15 @@ test("wait-time report aggregates today's queue tickets", async () => {
     assert.ok(res.body.data.staff.some((row: { staffId: number }) => row.staffId === staffId));
 });
 
-test("sales and commission reports reconcile to the ledger", async () => {
+test("sales report reconciles to the ledger", async () => {
+    const completedAppointment = await insertFinanceAppointment({
+        staffId,
+        serviceId,
+        status: "confirmed",
+    });
+    const completed = await complete(completedAppointment);
+    assert.equal(completed.status, 200);
+
     const day = await send(
         "get",
         apiPath("/api/owner/reports/daily-sales", { from: today(), to: today() }),
@@ -451,7 +252,7 @@ test("sales and commission reports reconcile to the ledger", async () => {
             String(row.bucket).slice(0, 10) === today() && row.staff_id === staffId
     );
     assert.ok(dayRow);
-    assert.equal(Number(dayRow.commission), 10);
+    assert.ok(Number(dayRow.gross) >= 100);
 
     for (const groupBy of ["week", "month"]) {
         const grouped = await send(
@@ -466,18 +267,6 @@ test("sales and commission reports reconcile to the ledger", async () => {
         assert.equal(grouped.status, 200);
         assert.ok(grouped.body.data.length >= 1);
     }
-
-    const commissions = await send(
-        "get",
-        apiPath("/api/owner/reports/commissions", { from: today(), to: today() }),
-        ownerCookie
-    );
-    assert.equal(commissions.status, 200);
-    const staffRow = commissions.body.data.find(
-        (row: { staff_id: number }) => row.staff_id === staffId
-    );
-    assert.ok(staffRow);
-    assert.ok(Number(staffRow.total) >= 10);
 
     const csv = await send(
         "get",
@@ -546,9 +335,6 @@ test("closing a day snapshots totals and locks further completion", async () => 
 });
 
 test("owner-only finance routes reject staff", async () => {
-    const rules = await send("get", "/api/owner/commission-rules", staffCookie);
-    assert.equal(rules.status, 403);
-
     const closures = await send("get", "/api/owner/closures", staffCookie);
     assert.equal(closures.status, 403);
 

@@ -9,7 +9,6 @@ export type InAppNotificationType =
     | "low_stock"
     | "event_assigned"
     | "event_changed"
-    | "commission_ready"
     | "system";
 
 export type InAppNotificationSeverity = "info" | "warning" | "critical";

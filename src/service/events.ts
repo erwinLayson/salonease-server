@@ -17,7 +17,6 @@ import { assignmentInterval, findConflicts } from "./eventConflicts.js";
 import { deductForEvent, evaluateAlert } from "./inventory.js";
 import { findStaffForUser } from "./appointments.js";
 import { createTransactionForEventInConnection } from "./transactions.js";
-import { accrueForEvent } from "./commissions.js";
 import { assertDayOpen } from "./dailyClose.js";
 
 // Types
@@ -57,7 +56,6 @@ export interface EventAssignmentDetail {
     releaseTime: Date;
     travelRequired: boolean;
     status: EventAssignmentStatus;
-    commissionSharePercent: number | null;
     notes: string | null;
     conflict: string | null;
 }
@@ -161,10 +159,6 @@ const toAssignment = (row: EventAssignmentRow): EventAssignmentDetail => ({
     releaseTime: row.release_time,
     travelRequired: row.travel_required === 1,
     status: row.status,
-    commissionSharePercent:
-        row.commission_share_percent === null
-            ? null
-            : Number(row.commission_share_percent),
     notes: row.notes,
     conflict: null,
 });
@@ -297,7 +291,6 @@ export interface EventAssignmentInput {
     releaseTime: Date;
     travelRequired: boolean;
     status?: EventAssignmentStatus | undefined;
-    commissionSharePercent?: number | null | undefined;
     notes?: string | null | undefined;
 }
 
@@ -341,13 +334,6 @@ const assertAssignments = async (
 
         if (item.releaseTime <= item.callTime) {
             throw new BadRequestError("releaseTime must be after callTime.");
-        }
-        if (
-            item.commissionSharePercent !== undefined &&
-            item.commissionSharePercent !== null &&
-            (item.commissionSharePercent < 0 || item.commissionSharePercent > 100)
-        ) {
-            throw new BadRequestError("commissionSharePercent must be between 0 and 100.");
         }
     }
 
@@ -471,7 +457,6 @@ const replaceAssignments = async (
             releaseTime: item.releaseTime,
             travelRequired: item.travelRequired,
             status: item.status ?? "assigned",
-            commissionSharePercent: item.commissionSharePercent ?? null,
             notes: item.notes ?? null,
         }))
     );
@@ -675,7 +660,7 @@ export const changeEventStatus = async (
                 );
             }
 
-            const transaction = await createTransactionForEventInConnection(connection, {
+            await createTransactionForEventInConnection(connection, {
                 eventId: id,
                 customerId: event.customer_id,
                 staffId: lead.staff_id,
@@ -691,12 +676,6 @@ export const changeEventStatus = async (
                     quantity: s.quantity,
                 })),
                 createdBy: actorUserId ?? null,
-            });
-
-            await accrueForEvent(connection, {
-                event,
-                transaction,
-                completedAt: transaction.completedAt,
             });
         }
     });

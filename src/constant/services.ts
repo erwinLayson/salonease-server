@@ -1,4 +1,4 @@
-/** Service categories used for reporting, event filtering and commission rules. */
+/** Service categories used for reporting and event filtering. */
 export const SERVICE_CATEGORIES = [
     "hair",
     "makeup",

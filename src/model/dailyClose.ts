@@ -12,7 +12,6 @@ export type SalesSummaryRow = {
     gcash_total: number;
     card_total: number;
     other_total: number;
-    commission_total: number;
     inventory_cost_total: number;
 };
 
@@ -29,7 +28,6 @@ export type DailyClosureRow = {
     gcash_total: number;
     card_total: number;
     other_total: number;
-    commission_total: number;
     inventory_cost_total: number;
     transaction_count: number;
     cash_counted: number | null;
@@ -55,7 +53,6 @@ export type SalesReportRow = {
     transactions: number;
     gross: number;
     paid: number;
-    commission: number;
 };
 
 export type BackfillAppointmentRow = {
@@ -94,28 +91,10 @@ export type MissingTransactionRow = {
     kind: "appointment" | "event";
 };
 
-export type MissingCommissionRow = {
-    id: number;
-    reference: string;
-    completed_at: Date;
-    staff_name: string;
-    subtotal: number;
-    appointment_id: number | null;
-    event_id: number | null;
-};
-
-export type CommissionMismatchRow = {
-    id: number;
-    reference: string;
-    completed_at: Date;
-    stored_total: number;
-    ledger_total: number;
-};
-
 const CLOSURE_COLUMNS = `
     SELECT id, business_date, gross_sales, discounts, net_sales, paid_total,
            unpaid_total, waived_total, cash_total, gcash_total, card_total,
-           other_total, commission_total, inventory_cost_total, transaction_count,
+           other_total, inventory_cost_total, transaction_count,
            cash_counted, cash_variance, status, notes, closed_by, closed_at,
            reopened_by, reopened_at, reopen_reason, created_at, updated_at
     FROM daily_sales_closures
@@ -136,7 +115,6 @@ export default class DailyCloseModel {
                         COALESCE(SUM(CASE WHEN payment_method = 'gcash' THEN total ELSE 0 END), 0) AS gcash_total,
                         COALESCE(SUM(CASE WHEN payment_method = 'card' THEN total ELSE 0 END), 0) AS card_total,
                         COALESCE(SUM(CASE WHEN payment_method = 'other' THEN total ELSE 0 END), 0) AS other_total,
-                        COALESCE(SUM(commission_total), 0) AS commission_total,
                         COALESCE(SUM(inventory_cost_total), 0) AS inventory_cost_total
                  FROM transactions
                  WHERE completed_at >= ? AND completed_at < ?`,
@@ -185,7 +163,6 @@ export default class DailyCloseModel {
         gcashTotal: number;
         cardTotal: number;
         otherTotal: number;
-        commissionTotal: number;
         inventoryCostTotal: number;
         transactionCount: number;
         cashCounted: number | null;
@@ -198,15 +175,15 @@ export default class DailyCloseModel {
                 `INSERT INTO daily_sales_closures
                     (business_date, gross_sales, net_sales, paid_total, unpaid_total,
                      waived_total, cash_total, gcash_total, card_total, other_total,
-                     commission_total, inventory_cost_total, transaction_count,
+                     inventory_cost_total, transaction_count,
                      cash_counted, cash_variance, status, notes, closed_by, closed_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'closed', ?, ?, NOW())
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'closed', ?, ?, NOW())
                  ON DUPLICATE KEY UPDATE
                     gross_sales = VALUES(gross_sales), net_sales = VALUES(net_sales),
                     paid_total = VALUES(paid_total), unpaid_total = VALUES(unpaid_total),
                     waived_total = VALUES(waived_total), cash_total = VALUES(cash_total),
                     gcash_total = VALUES(gcash_total), card_total = VALUES(card_total),
-                    other_total = VALUES(other_total), commission_total = VALUES(commission_total),
+                    other_total = VALUES(other_total),
                     inventory_cost_total = VALUES(inventory_cost_total),
                     transaction_count = VALUES(transaction_count),
                     cash_counted = VALUES(cash_counted), cash_variance = VALUES(cash_variance),
@@ -225,7 +202,6 @@ export default class DailyCloseModel {
                     input.gcashTotal,
                     input.cardTotal,
                     input.otherTotal,
-                    input.commissionTotal,
                     input.inventoryCostTotal,
                     input.transactionCount,
                     input.cashCounted,
@@ -279,8 +255,7 @@ export default class DailyCloseModel {
                         t.service_id, sv.name AS service_name, t.payment_method,
                         COUNT(*) AS transactions,
                         COALESCE(SUM(t.total), 0) AS gross,
-                        COALESCE(SUM(CASE WHEN t.payment_status = 'paid' THEN t.total ELSE 0 END), 0) AS paid,
-                        COALESCE(SUM(t.commission_total), 0) AS commission
+                        COALESCE(SUM(CASE WHEN t.payment_status = 'paid' THEN t.total ELSE 0 END), 0) AS paid
                  FROM transactions t
                  JOIN staff s ON s.id = t.staff_id
                  JOIN services sv ON sv.id = t.service_id
@@ -332,22 +307,6 @@ export default class DailyCloseModel {
                  ORDER BY e.start_at`
             );
             return rows as BackfillEventRow[];
-        } catch (err) {
-            throw new InternalServerError("Internal Server Error", 500, err);
-        }
-    }
-
-    /** Transactions that never produced a commission entry. */
-    async backfillTransactionsWithoutCommission(): Promise<BackfillTransactionRow[]> {
-        try {
-            const [rows] = await this.connection.query<RowDataPacket[]>(
-                `SELECT t.id, t.appointment_id, t.event_id, t.completed_at
-                 FROM transactions t
-                 LEFT JOIN commission_entries ce ON ce.transaction_id = t.id
-                 WHERE ce.id IS NULL
-                 ORDER BY t.completed_at`
-            );
-            return rows as BackfillTransactionRow[];
         } catch (err) {
             throw new InternalServerError("Internal Server Error", 500, err);
         }
@@ -437,82 +396,6 @@ export default class DailyCloseModel {
         }
     }
 
-    /** Transactions in range that produced no commission entry. */
-    async missingCommissions(from: Date, to: Date): Promise<MissingCommissionRow[]> {
-        try {
-            const [rows] = await this.connection.execute<RowDataPacket[]>(
-                `SELECT t.id, t.reference, t.completed_at,
-                        CONCAT_WS(' ', s.first_name, s.last_name) AS staff_name,
-                        t.subtotal, t.appointment_id, t.event_id
-                 FROM transactions t
-                 JOIN staff s ON s.id = t.staff_id
-                 LEFT JOIN commission_entries ce ON ce.transaction_id = t.id
-                 WHERE t.completed_at >= ? AND t.completed_at < ?
-                   AND ce.id IS NULL
-                 ORDER BY t.completed_at DESC
-                 LIMIT 500`,
-                [from, to]
-            );
-            return rows as MissingCommissionRow[];
-        } catch (err) {
-            throw new InternalServerError("Internal Server Error", 500, err);
-        }
-    }
-
-    /** Stored commission totals that no longer match the commission ledger. */
-    async commissionMismatches(
-        from: Date,
-        to: Date
-    ): Promise<CommissionMismatchRow[]> {
-        try {
-            const [rows] = await this.connection.execute<RowDataPacket[]>(
-                `SELECT t.id, t.reference, t.completed_at,
-                        t.commission_total AS stored_total,
-                        COALESCE(SUM(CASE WHEN ce.status <> 'void' THEN ce.commission_amount END), 0)
-                            AS ledger_total
-                 FROM transactions t
-                 LEFT JOIN commission_entries ce ON ce.transaction_id = t.id
-                 WHERE t.completed_at >= ? AND t.completed_at < ?
-                 GROUP BY t.id, t.reference, t.completed_at, t.commission_total
-                 HAVING ABS(t.commission_total - ledger_total) > 0.005
-                 ORDER BY t.completed_at DESC
-                 LIMIT 500`,
-                [from, to]
-            );
-            return rows as CommissionMismatchRow[];
-        } catch (err) {
-            throw new InternalServerError("Internal Server Error", 500, err);
-        }
-    }
-
-    async commissionSummary(
-        from: Date,
-        to: Date
-    ): Promise<Array<{ staff_id: number; staff_name: string; entries: number; total: number }>> {
-        try {
-            const [rows] = await this.connection.execute<RowDataPacket[]>(
-                `SELECT ce.staff_id,
-                        CONCAT_WS(' ', s.first_name, s.last_name) AS staff_name,
-                        COUNT(*) AS entries,
-                        COALESCE(SUM(ce.commission_amount), 0) AS total
-                 FROM commission_entries ce
-                 JOIN staff s ON s.id = ce.staff_id
-                 WHERE ce.accrued_at >= ? AND ce.accrued_at < ?
-                   AND ce.status <> 'void'
-                 GROUP BY ce.staff_id, s.first_name, s.last_name
-                 ORDER BY total DESC`,
-                [from, to]
-            );
-            return rows as Array<{
-                staff_id: number;
-                staff_name: string;
-                entries: number;
-                total: number;
-            }>;
-        } catch (err) {
-            throw new InternalServerError("Internal Server Error", 500, err);
-        }
-    }
 }
 
 void safeRowLimit;

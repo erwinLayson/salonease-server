@@ -114,21 +114,11 @@ export const PROTECTED_ROUTES: RouteMeta[] = [
     { method: "post", path: "/api/owner/events/1/supplies/issue" },
     { method: "post", path: "/api/owner/events/1/supplies/settle" },
 
-    { method: "get", path: "/api/owner/commission-rules" },
-    { method: "post", path: "/api/owner/commission-rules" },
-    { method: "post", path: "/api/owner/commission-rules/preview" },
-    { method: "put", path: "/api/owner/commission-rules/1" },
-    { method: "delete", path: "/api/owner/commission-rules/1" },
-    { method: "get", path: "/api/owner/commissions/entries" },
-    { method: "get", path: "/api/owner/commission-payouts" },
-    { method: "post", path: "/api/owner/commission-payouts" },
-    { method: "patch", path: "/api/owner/commission-payouts/1/status" },
     { method: "get", path: "/api/owner/closures" },
     { method: "get", path: "/api/owner/closures/2026-01-01" },
     { method: "post", path: "/api/owner/closures" },
     { method: "post", path: "/api/owner/closures/2026-01-01/reopen" },
     { method: "get", path: "/api/owner/reports/daily-sales" },
-    { method: "get", path: "/api/owner/reports/commissions" },
     { method: "get", path: "/api/owner/reports/wait-times" },
     { method: "get", path: "/api/owner/reports/reconciliation" },
 
@@ -143,8 +133,6 @@ export const PROTECTED_ROUTES: RouteMeta[] = [
     { method: "get", path: "/api/staff/transactions" },
     { method: "get", path: "/api/staff/schedule" },
     { method: "get", path: "/api/staff/events" },
-    { method: "get", path: "/api/staff/commissions" },
-    { method: "get", path: "/api/staff/commission-payouts" },
     { method: "get", path: "/api/staff/leave-requests/coverage" },
 ];
 
@@ -168,8 +156,6 @@ export const OWNER_GET_ROUTES: string[] = [
     "/api/owner/inventory/summary",
     "/api/owner/events",
     "/api/owner/venues",
-    "/api/owner/commission-rules",
-    "/api/owner/commission-payouts",
     "/api/owner/closures",
 ];
 
@@ -180,5 +166,4 @@ export const STAFF_GET_ROUTES: string[] = [
     "/api/staff/leave-requests/coverage",
     "/api/staff/schedule",
     "/api/staff/events",
-    "/api/staff/commissions",
 ];
