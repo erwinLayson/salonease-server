@@ -24,6 +24,7 @@ let owner: TestUser;
 let ownerCookie: string | undefined;
 
 let staffId: number;
+let staffCookie: string | undefined;
 let singleSupplyServiceId: number;
 let multiSupplyServiceId: number;
 
@@ -88,6 +89,10 @@ before(async () => {
     const staffRes = await apiCreateStaff(ownerCookie);
     staffId = staffRes.body.data.id;
     createdStaffIds.push(staffId);
+    staffCookie = (
+        await loginWith(staffRes.body.data.username, "StaffPass2026!")
+    ).cookie;
+    assert.ok(staffCookie);
 
     const s1 = await apiCreateService(ownerCookie, { durationMinutes: 30 });
     singleSupplyServiceId = s1.body.data.id;
@@ -508,5 +513,68 @@ test("deduction triggers an automatic low stock alert when balance falls to or b
     assert.ok(alert, "Automatic low_stock alert must exist in open alerts list");
     assert.equal(alert.currentQuantity, 15);
     assert.equal(alert.reorderLevel, 20);
+});
+
+test("staff completing the booked service deducts its recipe stock", async () => {
+    const supplyRes = await apiCreateSupply(ownerCookie, {
+        name: "Staff Completion Supply",
+        currentQuantity: 50,
+        unit: "ml",
+    });
+    assert.equal(supplyRes.status, 201);
+    const supplyId = supplyRes.body.data.id;
+
+    await send(
+        "put",
+        `/api/owner/services/${singleSupplyServiceId}/supplies`,
+        ownerCookie
+    ).send({ items: [{ supplyId, quantityPerService: 15, unit: "ml" }] });
+
+    const bookRes = await manualBooking("14:00", singleSupplyServiceId);
+    assert.equal(bookRes.status, 201);
+    const appointmentId = bookRes.body.data.id;
+
+    const confirmed = await send(
+        "patch",
+        `/api/staff/appointments/${appointmentId}/status`,
+        staffCookie
+    ).send({ status: "confirmed" });
+    assert.equal(confirmed.status, 200);
+
+    const beforeCompletion = await send(
+        "get",
+        `/api/owner/supplies/${supplyId}`,
+        ownerCookie
+    );
+    assert.equal(beforeCompletion.body.data.currentQuantity, 50);
+
+    const completed = await send(
+        "patch",
+        `/api/staff/appointments/${appointmentId}/status`,
+        staffCookie
+    ).send({ status: "completed" });
+    assert.equal(completed.status, 200, JSON.stringify(completed.body));
+    assert.equal(completed.body.data.status, "completed");
+
+    const supplyCheck = await send(
+        "get",
+        `/api/owner/supplies/${supplyId}`,
+        ownerCookie
+    );
+    assert.equal(supplyCheck.body.data.currentQuantity, 35);
+
+    const movementsRes = await send(
+        "get",
+        `/api/owner/supplies/${supplyId}/movements`,
+        ownerCookie
+    );
+    const usage = movementsRes.body.data.find(
+        (m: { movementType: string; referenceId: number }) =>
+            m.movementType === "usage" && m.referenceId === appointmentId
+    );
+    assert.ok(usage, "Staff completion must record a usage movement");
+    assert.equal(usage.quantityDelta, -15);
+    assert.equal(usage.balanceAfter, 35);
+    assert.equal(usage.referenceType, "appointment");
 });
 
